@@ -1,10 +1,54 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <string.h>
 #include <iostream>
 #include <stdio.h>
 #include <cstdlib>
+#include <vector>
+#include <memory.h>
+
+
+static int sockfd; // UDP socket
+std::string data = "Hello World!"; // data being sent
+    
+// client- and server socket addresses
+static struct sockaddr_in destaddr; 
+static struct sockaddr_in srcaddr;
+
+const int MAX_RETRIES = 5;
+const int TIMEOUT_MS = 200;
+
+
+int scanPort( const int port ) 
+{
+    // Set the port
+    destaddr.sin_port = htons(port);
+    
+    socklen_t srcaddrlen;
+    char buffer[2048];
+    int retVal;
+
+    for( int attempt = 0; attempt < MAX_RETRIES; attempt++)
+    {
+        if( ( retVal = sendto( sockfd, data.data(), data.length(), 0,
+            ( struct sockaddr* )&destaddr, sizeof( destaddr ) ) ) )
+        {
+            perror( "Error: Couldn't send data" );
+            return -1;
+        }
+
+        if( ( retVal = recvfrom( sockfd, buffer, sizeof( buffer ), 0,
+            ( struct sockaddr* )&srcaddr, &srcaddrlen ) ) < 0 )
+        {
+            perror( "Error: No response" );
+            return -1;
+        }
+
+         
+    }
+    
+    return 0;
+}
 
 int main( int argc, char* argv[] )
 {
@@ -18,54 +62,32 @@ int main( int argc, char* argv[] )
     const int  loPort = atoi( argv[2] );
     const int  hiPort = atoi( argv[3] );
 
-    // create UDP socket
-    int sockfd;
+    destaddr.sin_family = AF_INET;
+
     if( ( sockfd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 )
     {
         perror( "Error: Socket couldn't be created" );
         exit( 1 );
     }
 
-    std::string data = "Hello World!";
-    // Set up server address 
-    struct sockaddr_in destaddr; 
-    destaddr.sin_family = AF_INET;
+    // Set the address with the given IP addr.
+    if( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) )
+    {
+        std::cerr << "Error: Invalid IP addres or address family" << ipaddr << std::endl;
+        exit( 1 );
+    }
 
     // Iterate over port range
     for( int port=loPort; port <= hiPort; port++ )
     {
-        destaddr.sin_port = htons(port);
-        // Set the address with the given IP addr.
-        if( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) )
+        if ( scanPort( port ) < 0 )
         {
-            std::cerr << "Error: Invalid IP addres or address family" << ipaddr << std::endl;
-            exit( 1 );
+            std::cerr << "Error: Couldn't scan port: " << port << std::endl;
+            continue;
         }
-        
-        struct sockaddr_in srcaddr;
-        socklen_t srcaddrlen;
-        char buffer[2048];
-        int ret;
-        
-        while( ( ret = sendto( sockfd, data.c_str(), data.length(), 0,
-            ( struct sockaddr* )&destaddr, sizeof( destaddr ) ) ) )
-        {
 
-            if( ( ret = sendto( sockfd, data.c_str(), data.length(), 0,
-                ( struct sockaddr* )&destaddr, sizeof( destaddr ) ) ) )
-            {
-                perror( "Error: Couldn't send data" );
-                exit( 1 );
-            }
-            
-            if( ( ret = recvfrom( sockfd, buffer, sizeof( buffer ), 0,
-                ( struct sockaddr* )&srcaddr, &srcaddrlen ) ) < 0 )
-            {
-                perror( "Error: No response" );
-                exit( 1 );
-            }
-            std::cout << "Received: " << buffer << std::endl;
-        }   
+        std::cout << "Data Received; Port " << port << "is open" << std::endl;
+       
     }
 
     return 0;
