@@ -76,7 +76,7 @@ int main( int argc, char* argv[] )
     }
 
     // Set the address with the given IP addr.
-    if( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) )
+    if( ( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) ) < 1 )
     {
         std::cerr << "Error: Invalid IP addres or address family " << ipaddr << std::endl;
         exit( 1 );
