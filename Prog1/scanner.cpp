@@ -1,4 +1,8 @@
 #include <cerrno>
+#include <cstddef>
+#include <cstring>
+#include <iterator>
+#include <string>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -8,18 +12,20 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <cstdlib>
-#include <thread>
+#include <vector>
+#include <random>
+
+
+const int MAX_RETRIES = 5;
+const int TIMEOUT_MS = 500;
 
 static int sockfd; // UDP socket
-static std::string data = "Hello World!"; // data being sent
-    
+
 // client- and server socket addresses
 static struct sockaddr_in destaddr; 
 static struct sockaddr_in srcaddr;
 
-const int COPIES = 3;
-const int MAX_RETRIES = 5;
-const int TIMEOUT_MS = 500;
+static std::vector< uint8_t > openPorts; 
 
 int setSocketTimeout( int ms )
 {
@@ -33,7 +39,7 @@ int setSocketTimeout( int ms )
 }
 
 
-int scanPort( const int port ) 
+int scanPort( const int port, std::string data ) 
 {
     // Set the port
     destaddr.sin_port = htons(port);
@@ -67,8 +73,6 @@ int scanPort( const int port )
             perror( "Error: No response\n" );
             return -1;
         }
-
-
         
         buffer[ received ] = '\0';
         std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
@@ -111,10 +115,12 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
+    std::string data = "Hello World!"; // data being sent
+
     // Iterate over port range
     for( int port=loPort; port <= hiPort; port++ )
     {
-        int result = scanPort( port ); 
+        int result = scanPort( port, data ); 
 
         if ( result < 0 )
         {
@@ -125,6 +131,7 @@ int main( int argc, char* argv[] )
         if( result == 1 )
         {
             std::cout << "Port " << port << " is open" << std::endl;
+            openPorts.push_back( port );
         }
     }
 
