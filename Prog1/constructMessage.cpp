@@ -1,4 +1,6 @@
-
+// #include <random>
+// #include <iterator>
+// #include <cstddef>
 // static uint32_t secretNumber;
 // const char* userNames = "aroni21, bergurpb24, kormakur24";
 
@@ -20,3 +22,6 @@
 //     secretMessage.append( reinterpret_cast< const char* >( &netOrder ), sizeof( netOrder) ); 
 //     secretMessage += userNames;
 // }
+
+// buffer[ received ] = '\0';
+        // std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 

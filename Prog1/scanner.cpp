@@ -1,7 +1,5 @@
 #include <cerrno>
-#include <cstddef>
 #include <cstring>
-#include <iterator>
 #include <string>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -13,7 +11,6 @@
 #include <stdio.h>
 #include <cstdlib>
 #include <vector>
-#include <random>
 
 
 const int MAX_RETRIES = 5;
@@ -65,6 +62,7 @@ int scanPort( const int port, std::string data )
 
         if( received < 0 )
         {
+            // Check if resource is available or is blocking ( try again ) 
             if( errno == EAGAIN || errno == EWOULDBLOCK )
             {
                 continue;
@@ -74,8 +72,7 @@ int scanPort( const int port, std::string data )
             return -1;
         }
         
-        buffer[ received ] = '\0';
-        std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
+        // Port is open, return 1
         return 1;
     }
     
