@@ -1,15 +1,17 @@
+#include <cerrno>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <iostream>
+#include <memory.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <cstdlib>
 #include <thread>
-#include <memory.h>
-
 
 static int sockfd; // UDP socket
-std::string data = "Hello World!"; // data being sent
+static std::string data = "Hello World!"; // data being sent
     
 // client- and server socket addresses
 static struct sockaddr_in destaddr; 
@@ -17,7 +19,18 @@ static struct sockaddr_in srcaddr;
 
 const int COPIES = 3;
 const int MAX_RETRIES = 5;
-const int TIMEOUT_MS = 200;
+const int TIMEOUT_MS = 500;
+
+int setSocketTimeout( int ms )
+{
+    struct timeval tv;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = ( ms % 1000 ) * 1000;
+
+    return setsockopt( sockfd, SOL_SOCKET, 
+                    SO_RCVTIMEO, &tv, 
+                    sizeof( tv ) );
+}
 
 
 int scanPort( const int port ) 
@@ -25,32 +38,42 @@ int scanPort( const int port )
     // Set the port
     destaddr.sin_port = htons(port);
     
-    socklen_t srcaddrlen;
     char buffer[2048];
-    int retVal;
-
+    
     for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
-        if( ( retVal = sendto( sockfd, data.data(), data.length(), 0,
-            ( struct sockaddr* )&destaddr, sizeof( destaddr ) ) ) )
+
+        ssize_t sent = sendto( sockfd, data.data(), data.length(), 0,
+                        ( struct sockaddr* )&destaddr, sizeof( destaddr ) ); 
+        
+        if( sent < 0 )
         {
-            perror( "Error: Couldn't send data" );
+            perror( "Error: Couldn't send data\n" );
             return -1;
         }
 
-        if (attempt < COPIES - 1) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT_MS));
+        socklen_t srcaddrlen = sizeof( srcaddr );
+
+        ssize_t received = recvfrom( sockfd, buffer, sizeof( buffer ), 0,
+                            ( struct sockaddr* )&srcaddr, &srcaddrlen );
+
+        if( received < 0 )
+        {
+            if( errno == EAGAIN || errno == EWOULDBLOCK )
+            {
+                continue;
+            }
+            
+            perror( "Error: No response\n" );
+            return -1;
         }
 
-        if( ( retVal = recvfrom( sockfd, buffer, sizeof( buffer ), 0,
-            ( struct sockaddr* )&srcaddr, &srcaddrlen ) ) < 0 )
-        {
-            perror( "Error: No response" );
-            return -1;
-        } 
+
+        
+        buffer[ received ] = '\0';
+        std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
+        return 1;
     }
-    
-    std::cout << "Received, buffer data: " << buffer << std::endl;
     
     return 0;
 }
@@ -59,7 +82,7 @@ int main( int argc, char* argv[] )
 {
     if( argc < 4 )
     {
-        perror( "Error: Insufficient arguments");
+        perror( "Error: Insufficient arguments\n");
         exit( 1 );
     }
 
@@ -71,29 +94,41 @@ int main( int argc, char* argv[] )
 
     if( ( sockfd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 )
     {
-        perror( "Error: Socket couldn't be created" );
+        perror( "Error: Socket couldn't be created\n" );
+        exit( 1 );
+    }
+
+    if( setSocketTimeout( TIMEOUT_MS) < 0 )
+    {
+        perror( "Error: Couldn't set socket timeout" );
         exit( 1 );
     }
 
     // Set the address with the given IP addr.
     if( ( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) ) < 1 )
     {
-        std::cerr << "Error: Invalid IP addres or address family " << ipaddr << std::endl;
+        std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
         exit( 1 );
     }
 
     // Iterate over port range
     for( int port=loPort; port <= hiPort; port++ )
     {
-        if ( scanPort( port ) < 0 )
+        int result = scanPort( port ); 
+
+        if ( result < 0 )
         {
             std::cerr << "Error: Couldn't scan port: " << port << std::endl;
             continue;
         }
 
-        std::cout << "Data Received; Port " << port << "is open" << std::endl;
-       
+        if( result == 1 )
+        {
+            std::cout << "Port " << port << " is open" << std::endl;
+        }
     }
+
+    close( sockfd );
 
     return 0;
 }
