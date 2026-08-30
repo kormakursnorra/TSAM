@@ -4,7 +4,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <cstdlib>
-#include <vector>
+#include <thread>
 #include <memory.h>
 
 
@@ -15,6 +15,7 @@ std::string data = "Hello World!"; // data being sent
 static struct sockaddr_in destaddr; 
 static struct sockaddr_in srcaddr;
 
+const int COPIES = 3;
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 200;
 
@@ -28,7 +29,7 @@ int scanPort( const int port )
     char buffer[2048];
     int retVal;
 
-    for( int attempt = 0; attempt < MAX_RETRIES; attempt++)
+    for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
         if( ( retVal = sendto( sockfd, data.data(), data.length(), 0,
             ( struct sockaddr* )&destaddr, sizeof( destaddr ) ) ) )
@@ -37,15 +38,19 @@ int scanPort( const int port )
             return -1;
         }
 
+        if (attempt < COPIES - 1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(TIMEOUT_MS));
+        }
+
         if( ( retVal = recvfrom( sockfd, buffer, sizeof( buffer ), 0,
             ( struct sockaddr* )&srcaddr, &srcaddrlen ) ) < 0 )
         {
             perror( "Error: No response" );
             return -1;
-        }
-
-         
+        } 
     }
+    
+    std::cout << "Received, buffer data: " << buffer << std::endl;
     
     return 0;
 }
