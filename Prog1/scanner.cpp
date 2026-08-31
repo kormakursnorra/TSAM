@@ -23,7 +23,16 @@ static struct sockaddr_in destaddr;
 static struct sockaddr_in srcaddr;
 
 static std::vector< uint8_t > openPorts; 
+/* Sets the receive timout for the UDP socket,
+it is in milliseconds(ms)
 
+inputs: 
+ms: timeout duration in milliseconds.
+Return:
+0 if the timeout is set successfully.
+-1 if an error occurs.
+
+*/
 int setSocketTimeout( int ms )
 {
     struct timeval tv;
@@ -35,7 +44,18 @@ int setSocketTimeout( int ms )
                     sizeof( tv ) );
 }
 
-
+/*
+The scanPort function scans a single UPD port by sending data 
+to the destination and waiting for a response. The function will try
+MAX_RETRIES times if no response is recieved
+inputs:
+port: the UDP port number to scan
+data: the data that is sent to the destination.
+Return:
+1 if a response is recieved and the port is considered open.
+0 if no response is recieved after all retries.
+-1 if an error occurs while sending or receiving data.
+*/
 int scanPort( const int port, std::string data ) 
 {
     // Set the port
@@ -78,7 +98,17 @@ int scanPort( const int port, std::string data )
     
     return 0;
 }
-
+/*
+The Main function reads the IP Address and port range from
+ the command line arguments, it creates the UDP socket and sets 
+ the socket timeout, and scan each port in the specified range.
+inputs:
+argc : number of command line arguments.
+argv: command line arguments containing the IP Address, 
+lowest port and highest port
+ Return: 
+ 0 when the program finishes successfully.
+*/
 int main( int argc, char* argv[] )
 {
     if( argc < 4 )
