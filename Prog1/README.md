@@ -12,13 +12,29 @@ a reply comes back before the timeout expires.
 
 ## Building
 
-Compile directly with:
+### Using Make
+
+Simply run:
+
+```sh
+make
+```
+
+This compiles the program using the provided makefile and produces an executable named `scanner` in the current directory.
+
+To clean up compiled files:
+
+```sh
+make clean
+```
+
+### Compiling Directly
+
+Alternatively, compile directly with:
 
 ```sh
 g++ -Wall -Wextra -std=c++11 -o scanner scanner.cpp
 ```
-
-This produces an executable named `scanner` in the current directory.
 
 ## Running
 
