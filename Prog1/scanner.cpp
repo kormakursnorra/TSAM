@@ -1,39 +1,81 @@
-#include <cerrno>
-#include <cstring>
-#include <string>
+#include <cstdint>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <iostream>
-#include <memory.h>
 #include <sys/types.h>
+#include <memory.h>
 #include <unistd.h>
-#include <stdio.h>
 #include <cstdlib>
-#include <vector>
+#include <stdio.h>
 
+#include <iostream>
+#include <iterator>
+#include <cstddef>
+#include <cstring>
+#include <cerrno>
+#include <string>
+#include <vector>
+#include <random>
 
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 500;
 
-static int sockfd; // UDP socket
+/* Consturcts a "secret message" as a data packet and 
+ to send to the open ports that request it. 
 
-// client- and server socket addresses
-static struct sockaddr_in destaddr; 
-static struct sockaddr_in srcaddr;
+*/
+int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const std::string &userNames)
+{
+    std::random_device rd;
+    std::mt19937 gen( rd() ); 
+    std::uniform_int_distribution< uint32_t > dist( 0, UINT32_MAX );
+    
+    secretNumber = dist( gen );
+    
+    secretMessage.clear();
+    secretMessage.push_back( 'S' );
 
-static std::vector< uint8_t > openPorts; 
+    uint32_t netOrder = htonl(secretNumber); // convert to network byte order
+    
+    // reinterpret_cast netOrder int value to char* to comply with append parameter
+    secretMessage.append( reinterpret_cast< const char* >( &netOrder ), sizeof( netOrder) ); 
+    secretMessage += userNames;
+    return 0;
+}
+
+/* Establishes a "connection" between the source- 
+and destination addresss, i.e. stores the two 
+addresses so send and recv don't need to specify. 
+
+inputs:
+sockfd: socket to connect addresses with.
+destaddr: destaddr (receiver)
+srcaddr: source address (sender)
+Return:
+0 if connection is established.
+-1 if an error occurs.
+
+*/
+int setSocketConn( const int sockfd, struct sockaddr_in &destaddr )
+{
+    return connect( sockfd, 
+                    reinterpret_cast< struct sockaddr* >( &destaddr ), 
+                    sizeof( destaddr ) );    
+}
+
+
 /* Sets the receive timout for the UDP socket,
 it is in milliseconds(ms)
 
 inputs: 
 ms: timeout duration in milliseconds.
+sockfd: socket to set the timeout on.
 Return:
 0 if the timeout is set successfully.
 -1 if an error occurs.
 
 */
-int setSocketTimeout( int ms )
+int setSocketTimeout( int ms, const int sockfd )
 {
     struct timeval tv;
     tv.tv_sec = ms / 1000;
@@ -56,18 +98,14 @@ Return:
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
-int scanPort( const int port, std::string data ) 
-{
-    // Set the port
-    destaddr.sin_port = htons(port);
-    
+int scanPort( const int sockfd, const int port, std::string data ) 
+{    
     char buffer[2048];
     
     for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
 
-        ssize_t sent = sendto( sockfd, data.data(), data.length(), 0,
-                        ( struct sockaddr* )&destaddr, sizeof( destaddr ) ); 
+        ssize_t sent = send( sockfd, data.data(), data.length(), 0 ); 
         
         if( sent < 0 )
         {
@@ -75,10 +113,7 @@ int scanPort( const int port, std::string data )
             return -1;
         }
 
-        socklen_t srcaddrlen = sizeof( srcaddr );
-
-        ssize_t received = recvfrom( sockfd, buffer, sizeof( buffer ), 0,
-                            ( struct sockaddr* )&srcaddr, &srcaddrlen );
+        ssize_t received = recv( sockfd, buffer, sizeof( buffer ), 0 );
 
         if( received < 0 )
         {
@@ -93,6 +128,8 @@ int scanPort( const int port, std::string data )
         }
         
         // Port is open, return 1
+        buffer[ received ] = '\0';
+        std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
         return 1;
     }
     
@@ -121,6 +158,10 @@ int main( int argc, char* argv[] )
     const int  loPort = atoi( argv[2] );
     const int  hiPort = atoi( argv[3] );
 
+    int sockfd; // UDP socket
+    struct sockaddr_in destaddr; // Server address 
+    struct sockaddr_in srcaddr;  // Client address
+
     destaddr.sin_family = AF_INET;
 
     if( ( sockfd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 )
@@ -129,9 +170,15 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    if( setSocketTimeout( TIMEOUT_MS) < 0 )
+    if( setSocketTimeout( TIMEOUT_MS, sockfd) < 0 )
     {
         perror( "Error: Couldn't set socket timeout" );
+        exit( 1 );
+    }
+
+    if( setSocketConn( sockfd, destaddr) < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
         exit( 1 );
     }
 
@@ -142,12 +189,13 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    std::string data = "Hello World!"; // data being sent
+    std::string data = "Hello World!"; // data being sent 
+    std::vector< uint8_t > openPorts; // store all open ports once scan completes
 
     // Iterate over port range
     for( int port=loPort; port <= hiPort; port++ )
     {
-        int result = scanPort( port, data ); 
+        int result = scanPort( sockfd, port, data ); 
 
         if ( result < 0 )
         {
@@ -157,9 +205,18 @@ int main( int argc, char* argv[] )
 
         if( result == 1 )
         {
-            std::cout << "Port " << port << " is open" << std::endl;
             openPorts.push_back( port );
         }
+    }
+
+    const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Our usernames
+    uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
+    std::string secretMessage; // The "message" (or packet) being sent
+
+    if( constructMessage(secretNumber, secretMessage, userNames) < 0 )
+    {
+        perror("Error: Failed to construct message");
+        exit( 1 );
     }
 
     close( sockfd );
