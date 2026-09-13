@@ -56,7 +56,7 @@ Return:
 -1 if an error occurs.
 
 */
-int setSocketConn( const int sockfd, struct sockaddr_in &destaddr )
+int setSocketConnection( const int sockfd, struct sockaddr_in &destaddr )
 {
     return connect( sockfd, 
                     reinterpret_cast< struct sockaddr* >( &destaddr ), 
@@ -176,7 +176,7 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    if( setSocketConn( sockfd, destaddr) < 0 )
+    if( setSocketConnection( sockfd, destaddr) < 0 )
     {
         perror("Error: Failed to establish connection with receiver" );
         exit( 1 );
