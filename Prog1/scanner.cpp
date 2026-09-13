@@ -76,7 +76,7 @@ Return:
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
-int scanPort( const int sockfd, const int port, std::string data ) 
+int scanPort( const int sockfd, std::string data ) 
 {    
     char buffer[2048];
     
@@ -136,7 +136,6 @@ int main( int argc, char* argv[] )
 
     int sockfd; // UDP socket
     struct sockaddr_in destaddr; // Server address 
-    struct sockaddr_in srcaddr;  // Client address
 
     destaddr.sin_family = AF_INET;
 
@@ -171,7 +170,8 @@ int main( int argc, char* argv[] )
     // Iterate over port range
     for( int port=loPort; port <= hiPort; port++ )
     {
-        int result = scanPort( sockfd, port, data ); 
+        destaddr.sin_port = htons( port );
+        int result = scanPort( sockfd, data ); 
 
         if ( result < 0 )
         {
