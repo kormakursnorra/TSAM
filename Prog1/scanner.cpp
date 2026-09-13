@@ -20,28 +20,6 @@
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 500;
 
-/* Consturcts a "secret message" as a data packet and 
- to send to the open ports that request it. 
-
-*/
-int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const std::string &userNames)
-{
-    std::random_device rd;
-    std::mt19937 gen( rd() ); 
-    std::uniform_int_distribution< uint32_t > dist( 0, UINT32_MAX );
-    
-    secretNumber = dist( gen );
-    
-    secretMessage.clear();
-    secretMessage.push_back( 'S' );
-
-    uint32_t netOrder = htonl(secretNumber); // convert to network byte order
-    
-    // reinterpret_cast netOrder int value to char* to comply with append parameter
-    secretMessage.append( reinterpret_cast< const char* >( &netOrder ), sizeof( netOrder) ); 
-    secretMessage += userNames;
-    return 0;
-}
 
 /* Establishes a "connection" between the source- 
 and destination addresss, i.e. stores the two 
@@ -128,8 +106,6 @@ int scanPort( const int sockfd, const int port, std::string data )
         }
         
         // Port is open, return 1
-        buffer[ received ] = '\0';
-        std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
         return 1;
     }
     
@@ -207,16 +183,6 @@ int main( int argc, char* argv[] )
         {
             openPorts.push_back( port );
         }
-    }
-
-    const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Our usernames
-    uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
-    std::string secretMessage; // The "message" (or packet) being sent
-
-    if( constructMessage(secretNumber, secretMessage, userNames) < 0 )
-    {
-        perror("Error: Failed to construct message");
-        exit( 1 );
     }
 
     close( sockfd );
