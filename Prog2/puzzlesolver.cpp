@@ -115,7 +115,7 @@ int sendToPort( const int sockfd, const int port, std::string data )
         buffer[ received ] = '\0';
         std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
         for (int i = 0; i < received; i++) {
-            printf("%02x ", (unsigned char)buffer[i]);
+            printf("%02x ", ( unsigned char )buffer[i] );
         }
         std::cout << std::endl;
         return 1;
@@ -174,7 +174,7 @@ int main( int argc, char* argv[] )
         std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
         exit( 1 );
     }
-   
+
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
     const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
     std::string secretMessage; // The "message" (or packet) being sent
@@ -198,8 +198,6 @@ int main( int argc, char* argv[] )
     {
         std::cerr << "Error: Couldn't scan port: " << openPorts.at(3) << std::endl;
     }
-
-
     
     // if( result == 1 )
     // {
