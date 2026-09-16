@@ -1,3 +1,4 @@
+#include <ostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -23,6 +24,13 @@
 
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 10;
+
+struct SecretData {
+    int groupId;
+    int hiddenPort;
+    int secretPort;
+    int secretSigil;
+};
 
 /* Sets the receive timout for the UDP socket,
 it is in milliseconds(ms)
@@ -80,7 +88,7 @@ Return:
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
-int sendToPort( const int sockfd, const int port, std::string data, char* buff ) 
+int sendToPort( const int sockfd, const int port, std::string data, char* buff, size_t buffSize ) 
 {    
     for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
@@ -92,7 +100,7 @@ int sendToPort( const int sockfd, const int port, std::string data, char* buff )
             return -1;
         }
 
-        ssize_t received = recv( sockfd, buff, sizeof( buff ), 0 );
+        ssize_t received = recv( sockfd, buff, buffSize, 0 );
 
         if( received < 0 )
         {
@@ -107,8 +115,7 @@ int sendToPort( const int sockfd, const int port, std::string data, char* buff )
         }
         
         // Port is open, return 1
-        buff[ received ] = '\0';
-        return 1;
+        return static_cast< int >( received );
     }
     
     return 0;
@@ -137,7 +144,9 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
     return 0;
 }
 
-int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr_in& destaddr, int &groupId, int &sigil )
+
+
+int secretPortChallenge( const int sockfd, struct sockaddr_in& destaddr, SecretData& secretData )
 {
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
     const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
@@ -149,7 +158,7 @@ int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr
         return 1;
     }
 
-    destaddr.sin_port = htons( secretPort );
+    destaddr.sin_port = htons( secretData.secretPort );
     if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
     sizeof( destaddr ) )  < 0 )
     {
@@ -158,22 +167,41 @@ int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr
     }
 
     char reply[5];
-    
-    if( sendToPort( sockfd, secretPort, secretMessage, reply) < 0 )
+    int bytesReceived = sendToPort( sockfd, secretData.secretPort, secretMessage, reply, sizeof( reply ) );
+    if( bytesReceived < 0 || bytesReceived != sizeof( reply ) )
     {
-        std::cerr << "Error: Couldn't scan port: " << secretPort << std::endl;
+        std::cerr << "Error: unexpected reply size from port " << secretData.secretPort << std::endl;
         return 1;
     }
 
-    // int groupId = static_cast<int>( static_cast< unsigned char >( reply[0] ) );
-    groupId = reply[0] - '0';
+    secretData.groupId = static_cast<int>( static_cast< unsigned char >( reply[0] ) );
     
     uint32_t challengeNumber;
     memcpy( &challengeNumber, &reply[1], sizeof( challengeNumber ) );
 
-    sigil = secretNumber ^ ntohl( challengeNumber );
+    secretData.secretSigil = secretNumber ^ ntohl( challengeNumber );
 
+    // uint32_t groupId_NetOrder = htonl( secretData.groupId );
+    uint32_t sigil_NetOrder   = htonl( secretData.secretSigil );
+    
+    std::string newMessage;
+    newMessage.resize( 1 + sizeof( uint32_t ) );
+    newMessage[0] = static_cast<char>( secretData.groupId );
+    memcpy( &newMessage[1], &sigil_NetOrder, sizeof( sigil_NetOrder ) );
 
+    char buffer[ sizeof( uint32_t ) ];
+    bytesReceived = sendToPort( sockfd, secretData.secretPort, newMessage, buffer, sizeof( buffer ) );
+    if( bytesReceived < 0 || bytesReceived != sizeof( buffer ) )
+    {
+        std::cerr << "Error: Couldn't scan port: " << secretData.secretPort << std::endl;
+        return 1;
+    }
+
+    uint32_t replyPortNumber;
+    memcpy( &replyPortNumber, &buffer, sizeof( replyPortNumber ) );
+    secretData.hiddenPort = ntohl( replyPortNumber );
+    
+    return 0;
 }
 
 /*
@@ -187,7 +215,7 @@ lowest port and highest port
  Return: 
  0 when the program finishes successfully.
 */
-int main( int argc, char* argv[] )
+int main( int argc, char* argv[] )  
 {
     if( argc < 6 )
     {
@@ -247,12 +275,16 @@ int main( int argc, char* argv[] )
         }
         
         char buffer[2048];
-        
-        if ( sendToPort( sockfd, port, "Hello", buffer ) < 0 )
+        int bytesReceived;
+
+        if( ( bytesReceived = sendToPort( sockfd, port, "Hello!", buffer, sizeof( buffer ) ) ) < 0 )
         {
             std::cerr << "Error: Couldn't scan port: " << port << std::endl;
             exit( 1 );
         }
+
+        buffer[ bytesReceived ] = '\0';
+
         
         if( mapToPort( buffer, port, portMap) < 0 )
         {
@@ -261,16 +293,31 @@ int main( int argc, char* argv[] )
         }
     }
 
-    int groupId;
-    int secretSigil;
+    SecretData secretData;
+    secretData.secretPort = portMap.at( "S.E.C.R.E.T." );
 
-    if( secretPortChallenge( sockfd, portMap.at( "S.E.C.R.E.T." ), 
-        destaddr, groupId, secretSigil ) < 0 )
+    if( secretPortChallenge( sockfd, destaddr, secretData) < 0 )
     {
         std::cerr << "Error: Couldn't scan port " << std::endl;
         exit( 1 );   
     }
 
+    destaddr.sin_port = htons( secretData.hiddenPort );
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+    sizeof( destaddr ) )  < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
+        exit( 1 );
+    }
+    
+    char buffer[2048];
+
+    int bytesReceived = sendToPort( sockfd, secretData.secretPort, "Hellow!", buffer, sizeof( buffer ) );
+    if( bytesReceived < 0 || bytesReceived != sizeof( buffer ) )
+    {
+        std::cerr << "Error: Couldn't scan port: " << secretData.hiddenPort << std::endl;
+        return 1;
+    }
 
     close( sockfd );
 
