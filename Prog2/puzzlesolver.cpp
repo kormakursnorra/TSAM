@@ -81,14 +81,10 @@ Return:
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
-int sendToPort( const int sockfd, const int port, std::string data ) 
+int sendToPort( const int sockfd, const int port, std::string data, char* reply ) 
 {    
-    char buffer[2048];
-    
     for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
-
-
         ssize_t sent = send( sockfd, data.data(), data.length(), 0 ); 
         
         if( sent < 0 )
@@ -97,7 +93,7 @@ int sendToPort( const int sockfd, const int port, std::string data )
             return -1;
         }
 
-        ssize_t received = recv( sockfd, buffer, sizeof( buffer ), 0 );
+        ssize_t received = recv( sockfd, reply, sizeof( reply ), 0 );
 
         if( received < 0 )
         {
@@ -112,12 +108,6 @@ int sendToPort( const int sockfd, const int port, std::string data )
         }
         
         // Port is open, return 1
-        buffer[ received ] = '\0';
-        std::cout << "Port " << port << " reply (" << received << " bytes): " << buffer << std::endl; 
-        for (int i = 0; i < received; i++) {
-            printf("%02x ", ( unsigned char )buffer[i] );
-        }
-        std::cout << std::endl;
         return 1;
     }
     
@@ -173,6 +163,33 @@ int main( int argc, char* argv[] )
     {
         std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
         exit( 1 );
+    } 
+
+    std::map< std::string, int > portMap = {
+        {"D.R.A.G.O.N", -1},
+        {"EvilBit", -1},
+        {"Guardian", -1},
+        {"Secret", -1}
+    }; 
+
+    for( const auto& port : openPorts )
+    {
+        
+        destaddr.sin_port = htons( port );
+        if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+        sizeof( destaddr ) )  < 0 )
+        {
+            perror("Error: Failed to establish connection with receiver" );
+            exit( 1 );
+        }
+        
+        char buffer[2048];
+        
+        int result = sendToPort( sockfd, port, "Hello", buffer );
+        if ( result < 0 )
+        {
+            std::cerr << "Error: Couldn't scan port: " << port << std::endl;
+        }
     }
 
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
@@ -183,20 +200,6 @@ int main( int argc, char* argv[] )
     {
         perror("Error: Failed to construct message");
         exit( 1 );
-    }
-    
-    destaddr.sin_port = htons( openPorts.at(3) );
-    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
-                sizeof( destaddr ) )  < 0 )
-    {
-        perror("Error: Failed to establish connection with receiver" );
-        exit( 1 );
-    }
-
-    int result = sendToPort( sockfd, openPorts.at(3), secretMessage );
-    if ( result < 0 )
-    {
-        std::cerr << "Error: Couldn't scan port: " << openPorts.at(3) << std::endl;
     }
     
     // if( result == 1 )
