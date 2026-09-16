@@ -265,7 +265,7 @@ int main( int argc, char* argv[] )
     int secretSigil;
 
     if( secretPortChallenge( sockfd, portMap.at( "S.E.C.R.E.T." ), 
-        destaddr, &groupId, &secretSigil ) < 0 )
+        destaddr, groupId, secretSigil ) < 0 )
     {
         std::cerr << "Error: Couldn't scan port " << std::endl;
         exit( 1 );   
