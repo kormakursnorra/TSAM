@@ -137,7 +137,7 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
     return 0;
 }
 
-int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr_in& destaddr )
+int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr_in& destaddr, int &groupId, int &sigil )
 {
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
     const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
@@ -165,12 +165,13 @@ int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr
         return 1;
     }
 
-    int groupId = static_cast<int>( static_cast< unsigned char >( reply[0] ) );
+    // int groupId = static_cast<int>( static_cast< unsigned char >( reply[0] ) );
+    groupId = reply[0] - '0';
     
     uint32_t challengeNumber;
     memcpy( &challengeNumber, &reply[1], sizeof( challengeNumber ) );
 
-    uint32_t combinedNumber = secretNumber ^ ntohl( challengeNumber );
+    sigil = secretNumber ^ ntohl( challengeNumber );
 
 
 }
@@ -260,7 +261,11 @@ int main( int argc, char* argv[] )
         }
     }
 
-    if( secretPortChallenge( sockfd, portMap.at( "S.E.C.R.E.T." ), destaddr ) < 0 )
+    int groupId;
+    int secretSigil;
+
+    if( secretPortChallenge( sockfd, portMap.at( "S.E.C.R.E.T." ), 
+        destaddr, &groupId, &secretSigil ) < 0 )
     {
         std::cerr << "Error: Couldn't scan port " << std::endl;
         exit( 1 );   
