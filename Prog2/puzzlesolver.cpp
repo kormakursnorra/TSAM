@@ -1,3 +1,4 @@
+#include <array>
 #include <cstdint>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -63,7 +64,6 @@ int setSocketConnection( const int sockfd, struct sockaddr_in &destaddr )
                     sizeof( destaddr ) );    
 }
 
-
 /* Sets the receive timout for the UDP socket,
 it is in milliseconds(ms)
 
@@ -98,12 +98,13 @@ Return:
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
-int scanPort( const int sockfd, const int port, std::string data ) 
+int sendToPort( const int sockfd, const int port, std::string data ) 
 {    
     char buffer[2048];
     
     for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
+
 
         ssize_t sent = send( sockfd, data.data(), data.length(), 0 ); 
         
@@ -148,19 +149,21 @@ lowest port and highest port
 */
 int main( int argc, char* argv[] )
 {
-    if( argc < 4 )
+    if( argc < 6 )
     {
         perror( "Error: Insufficient arguments\n");
         exit( 1 );
     }
 
     const char *ipaddr = argv[1];
-    const int  loPort = atoi( argv[2] );
-    const int  hiPort = atoi( argv[3] );
+    const std::array<int, 4> openPorts = { 
+        atoi( argv[2] ), atoi( argv[3] ), 
+        atoi( argv[4] ), atoi( argv[5] ) 
+    };
+
 
     int sockfd; // UDP socket
     struct sockaddr_in destaddr; // Server address 
-    struct sockaddr_in srcaddr;  // Client address
 
     destaddr.sin_family = AF_INET;
 
@@ -188,29 +191,9 @@ int main( int argc, char* argv[] )
         std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
         exit( 1 );
     }
-
-    std::string data = "Hello World!"; // data being sent 
-    std::vector< uint8_t > openPorts; // store all open ports once scan completes
-
-    // Iterate over port range
-    for( int port=loPort; port <= hiPort; port++ )
-    {
-        int result = scanPort( sockfd, port, data ); 
-
-        if ( result < 0 )
-        {
-            std::cerr << "Error: Couldn't scan port: " << port << std::endl;
-            continue;
-        }
-
-        if( result == 1 )
-        {
-            openPorts.push_back( port );
-        }
-    }
-
-    const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Our usernames
+   
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
+    const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
     std::string secretMessage; // The "message" (or packet) being sent
 
     if( constructMessage(secretNumber, secretMessage, userNames) < 0 )
@@ -218,6 +201,23 @@ int main( int argc, char* argv[] )
         perror("Error: Failed to construct message");
         exit( 1 );
     }
+
+    for( const auto& port : openPorts )
+    {
+        destaddr.sin_port = htons( port );
+        int result = sendToPort( sockfd, port, "Hello World" );
+        if ( result < 0 )
+        {
+            std::cerr << "Error: Couldn't scan port: " << port << std::endl;
+            continue;
+        }
+        
+        if( result == 1)
+        {
+            std::cout << "Port" << port << "is open" << std::endl;
+        }
+    }
+
 
     close( sockfd );
 

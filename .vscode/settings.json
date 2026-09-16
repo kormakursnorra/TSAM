@@ -1,0 +1,16 @@
+{
+    "makefile.makefilePath": "/home/kormakur-snorrason/HR/Year3/Fall/ComputerNetworks/ProgrammingAssignments/Prog2/Makefile",
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "/home/kormakur-snorrason/HR/Year3/Fall/ComputerNetworks/ProgrammingAssignments",
+            "binaryPath": "/home/kormakur-snorrason/HR/Year3/Fall/ComputerNetworks/ProgrammingAssignments/Prog2/puzzlesolver",
+            "binaryArgs": [
+                "130.208.246.98",
+                "4005",
+                "4017",
+                "4026",
+                "4048"
+            ]
+        }
+    ]
+}
