@@ -1,5 +1,4 @@
-#include <array>
-#include <cstdint>
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -10,13 +9,17 @@
 #include <stdio.h>
 
 #include <iostream>
+
 #include <iterator>
+#include <cstdint>
 #include <cstddef>
 #include <cstring>
 #include <cerrno>
 #include <string>
 #include <vector>
 #include <random>
+#include <map>
+
 
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 10;
@@ -34,7 +37,7 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
     secretNumber = dist( gen );
     
     secretMessage.clear();
-    secretMessage.push_back( "S.E.C.R.E.T.:" );
+    secretMessage.append( "S.E.C.R.E.T.:" );
 
     uint32_t netOrder = htonl(secretNumber); // convert to network byte order
     
@@ -42,27 +45,6 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
     secretMessage.append( reinterpret_cast< const char* >( &netOrder ), sizeof( netOrder) ); 
     secretMessage += userNames;
     return 0;
-}
-
-/* Establishes a "connection" between the source- 
-and destination addresss, i.e. stores the two 
-addresses so send and recv don't need to specify. 
-
-inputs:
-sockfd: socket to connect addresses with.
-destaddr: destaddr (receiver)
-srcaddr: source address (sender)
-Return:
-0 if connection is established.
--1 if an error occurs.
-
-*/
-int setSocketConnection( const int sockfd, const int port, struct sockaddr_in &destaddr )
-{
-    destaddr.sin_port = htons( port );
-    return connect( sockfd, 
-                    reinterpret_cast< struct sockaddr* >( &destaddr ), 
-                    sizeof( destaddr ) );    
 }
 
 /* Sets the receive timout for the UDP socket,
@@ -157,9 +139,11 @@ int main( int argc, char* argv[] )
     }
 
     const char *ipaddr = argv[1];
-    const std::array<int, 4> openPorts = { 
-        atoi( argv[2] ), atoi( argv[3] ), 
-        atoi( argv[4] ), atoi( argv[5] ) 
+    const std::map<std::string, int> openPorts = { 
+        { "Dragon", atoi( argv[2] ) }, 
+        { "EvilBit", atoi( argv[3] ) }, 
+        { "Guardian", atoi( argv[4] ) },
+        { "Secret", atoi( argv[5] ) } 
     };
 
 
@@ -186,7 +170,24 @@ int main( int argc, char* argv[] )
         std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
         exit( 1 );
     }
-   
+
+    // Sending to D.R.A.G.O.N port
+    const int dragonPort = openPorts.at("Dragon");
+    destaddr.sin_port = htons( dragonPort );
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+                sizeof( destaddr ) )  < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
+        exit( 1 );
+    }
+
+    int result = sendToPort( sockfd, dragonPort, secretMessage );
+    if ( result < 0 )
+    {
+        std::cerr << "Error: Couldn't scan port: " << dragonPort << std::endl;
+    }
+
+
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
     const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
     std::string secretMessage; // The "message" (or packet) being sent
@@ -197,28 +198,27 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    for( const auto& port : openPorts )
+    // Sending to S.E.C.R.E.T port
+    const int secretPort = openPorts.at( "Secret" );
+    destaddr.sin_port = htons( secretPort );
+    
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+                sizeof( destaddr ) )  < 0 )
     {
-        destaddr.sin_port = htons( port );
-        if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
-                    sizeof( destaddr ) )  < 0 )
-        {
-            perror("Error: Failed to establish connection with receiver" );
-            exit( 1 );
-        }
-
-        int result = sendToPort( sockfd, port, secretMessage );
-        if ( result < 0 )
-        {
-            std::cerr << "Error: Couldn't scan port: " << port << std::endl;
-            continue;
-        }
-        
-        // if( result == 1 )
-        // {
-        //     std::cout << "Port " << port << " is open" << std::endl;
-        // }
+        perror("Error: Failed to establish connection with receiver" );
+        exit( 1 );
     }
+
+    result = sendToPort( sockfd, secretPort, secretMessage );
+    if ( result < 0 )
+    {
+        std::cerr << "Error: Couldn't scan port: " << secretPort << std::endl;
+    }
+    
+    // if( result == 1 )
+    // {
+    //     std::cout << "Port " << port << " is open" << std::endl;
+    // }
 
 
     close( sockfd );
