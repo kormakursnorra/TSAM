@@ -54,13 +54,17 @@ int mapToPort( char* buff, const int port, std::map< std::string, int >& portMap
 {
     std::string buffContent =  static_cast< std::string >( buff );
     
-    for ( const auto& [key, value] : portMap ) 
+    for ( const auto& entry : portMap ) 
     {
-        if( buffContent.find(key) != std::string::npos )
+        const std::string &key = entry.first;
+
+        if( buffContent.find( key ) != std::string::npos )
         {
             portMap[key] = port;
         }
     }
+
+    return 0;
 }
 
 
@@ -103,6 +107,7 @@ int sendToPort( const int sockfd, const int port, std::string data, char* buff )
         }
         
         // Port is open, return 1
+        buff[ received ] = '\0';
         return 1;
     }
     
@@ -132,8 +137,43 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
     return 0;
 }
 
-int sendToSecret( const int sockfd, const int port, std::string& message )
-{}
+int secretPortChallenge( const int sockfd, const int secretPort, struct sockaddr_in& destaddr )
+{
+    uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
+    const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
+    std::string secretMessage; // The "message" (or packet) being sent
+
+    if( constructMessage(secretNumber, secretMessage, userNames) < 0 )
+    {
+        perror("Error: Failed to construct message");
+        return 1;
+    }
+
+    destaddr.sin_port = htons( secretPort );
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+    sizeof( destaddr ) )  < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
+        return 1;
+    }
+
+    char reply[5];
+    
+    if( sendToPort( sockfd, secretPort, secretMessage, reply) < 0 )
+    {
+        std::cerr << "Error: Couldn't scan port: " << secretPort << std::endl;
+        return 1;
+    }
+
+    int groupId = static_cast<int>( static_cast< unsigned char >( reply[0] ) );
+    
+    uint32_t challengeNumber;
+    memcpy( &challengeNumber, &reply[1], sizeof( challengeNumber ) );
+
+    uint32_t combinedNumber = secretNumber ^ ntohl( challengeNumber );
+
+
+}
 
 /*
 The Main function reads the IP Address and port range from
@@ -189,9 +229,9 @@ int main( int argc, char* argv[] )
 
     std::map< std::string, int > portMap = {
         {"D.R.A.G.O.N", -1},
-        {"EvilBit", -1},
-        {"Guardian", -1},
-        {"Secret", -1}
+        {"evil port", -1},
+        {"guardian", -1},
+        {"S.E.C.R.E.T.", -1}
     }; 
 
     for( const auto& port : openPorts )
@@ -210,30 +250,21 @@ int main( int argc, char* argv[] )
         if ( sendToPort( sockfd, port, "Hello", buffer ) < 0 )
         {
             std::cerr << "Error: Couldn't scan port: " << port << std::endl;
+            exit( 1 );
         }
         
         if( mapToPort( buffer, port, portMap) < 0 )
         {
             std::cerr << "Error: Couln't map to port: " << port << std::endl;
+            exit( 1 );
         }
     }
 
-
-
-    uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
-    const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
-    std::string secretMessage; // The "message" (or packet) being sent
-
-    if( constructMessage(secretNumber, secretMessage, userNames) < 0 )
+    if( secretPortChallenge( sockfd, portMap.at( "S.E.C.R.E.T." ), destaddr ) < 0 )
     {
-        perror("Error: Failed to construct message");
-        exit( 1 );
+        std::cerr << "Error: Couldn't scan port " << std::endl;
+        exit( 1 );   
     }
-    
-    // if( result == 1 )
-    // {
-    //     std::cout << "Port " << port << " is open" << std::endl;
-    // }
 
 
     close( sockfd );
