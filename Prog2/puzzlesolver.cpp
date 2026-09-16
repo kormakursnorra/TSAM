@@ -19,7 +19,7 @@
 #include <random>
 
 const int MAX_RETRIES = 5;
-const int TIMEOUT_MS = 500;
+const int TIMEOUT_MS = 10;
 
 /* Consturcts a "secret message" as a data packet and 
  to send to the open ports that request it. 
@@ -34,7 +34,7 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
     secretNumber = dist( gen );
     
     secretMessage.clear();
-    secretMessage.push_back( 'S' );
+    secretMessage.push_back( "S.E.C.R.E.T.:" );
 
     uint32_t netOrder = htonl(secretNumber); // convert to network byte order
     
@@ -57,8 +57,9 @@ Return:
 -1 if an error occurs.
 
 */
-int setSocketConnection( const int sockfd, struct sockaddr_in &destaddr )
+int setSocketConnection( const int sockfd, const int port, struct sockaddr_in &destaddr )
 {
+    destaddr.sin_port = htons( port );
     return connect( sockfd, 
                     reinterpret_cast< struct sockaddr* >( &destaddr ), 
                     sizeof( destaddr ) );    
@@ -179,12 +180,6 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    if( setSocketConnection( sockfd, destaddr) < 0 )
-    {
-        perror("Error: Failed to establish connection with receiver" );
-        exit( 1 );
-    }
-
     // Set the address with the given IP addr.
     if( ( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) ) < 1 )
     {
@@ -205,17 +200,24 @@ int main( int argc, char* argv[] )
     for( const auto& port : openPorts )
     {
         destaddr.sin_port = htons( port );
-        int result = sendToPort( sockfd, port, "Hello World" );
+        if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+                    sizeof( destaddr ) )  < 0 )
+        {
+            perror("Error: Failed to establish connection with receiver" );
+            exit( 1 );
+        }
+
+        int result = sendToPort( sockfd, port, secretMessage );
         if ( result < 0 )
         {
             std::cerr << "Error: Couldn't scan port: " << port << std::endl;
             continue;
         }
         
-        if( result == 1)
-        {
-            std::cout << "Port" << port << "is open" << std::endl;
-        }
+        // if( result == 1 )
+        // {
+        //     std::cout << "Port " << port << " is open" << std::endl;
+        // }
     }
 
 

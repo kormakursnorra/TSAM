@@ -18,7 +18,7 @@
 #include <random>
 
 const int MAX_RETRIES = 5;
-const int TIMEOUT_MS = 500;
+const int TIMEOUT_MS = 10;
 
 
 /* Establishes a "connection" between the source- 
@@ -34,8 +34,9 @@ Return:
 -1 if an error occurs.
 
 */
-int setSocketConn( const int sockfd, struct sockaddr_in &destaddr )
+int setSocketConn( const int sockfd, const int port, struct sockaddr_in &destaddr )
 {
+    destaddr.sin_port = htons( port );
     return connect( sockfd, 
                     reinterpret_cast< struct sockaddr* >( &destaddr ), 
                     sizeof( destaddr ) );    
@@ -92,7 +93,6 @@ int scanPort( const int sockfd, std::string data )
         }
 
         ssize_t received = recv( sockfd, buffer, sizeof( buffer ), 0 );
-
         if( received < 0 )
         {
             // Check if resource is available or is blocking ( try again ) 
@@ -151,26 +151,25 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    if( setSocketConn( sockfd, destaddr) < 0 )
-    {
-        perror("Error: Failed to establish connection with receiver" );
-        exit( 1 );
-    }
-
     // Set the address with the given IP addr.
     if( ( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) ) < 1 )
     {
         std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
         exit( 1 );
     }
-
+   
     std::string data = "Hello World!"; // data being sent 
-    std::vector< uint8_t > openPorts; // store all open ports once scan completes
+    std::vector< uint16_t > openPorts; // store all open ports once scan completes
 
     // Iterate over port range
     for( int port=loPort; port <= hiPort; port++ )
     {
-        destaddr.sin_port = htons( port );
+        if( setSocketConn( sockfd, port, destaddr) < 0 )
+        {
+            perror("Error: Failed to establish connection with receiver" );
+            exit( 1 );
+        }
+        
         int result = scanPort( sockfd, data ); 
 
         if ( result < 0 )
@@ -181,6 +180,7 @@ int main( int argc, char* argv[] )
 
         if( result == 1 )
         {
+            std::cout << "Port " << port << " is open" << std::endl;
             openPorts.push_back( port );
         }
     }
