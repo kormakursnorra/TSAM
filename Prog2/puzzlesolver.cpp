@@ -1,5 +1,6 @@
 #include <netinet/ip6.h>
 #include <netinet/udp.h>
+#include <netinet/ip.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -27,28 +28,35 @@
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 30;
 
+
+struct Signature 
+{
+    uint8_t groupId;
+    uint32_t secretSigil;
+};
+
 struct SecretData 
 {
     int secretPort;
     int hiddenPort;
-    uint8_t groupId;
-    uint32_t secretSigil;
+    Signature signature;
 };
 
 struct GuardianData 
 {
     int guardianPort;
-    uint8_t groupId;
-    uint32_t secretSigil;
+    Signature signature;
     std::string secretSpell;
     struct ip6_hdr responseHdr;
     struct udphdr responseUdpHdr;  
 };
 
-struct EvilData 
+struct EvilBitData 
 {
     int evilPort;
-
+    struct ip ipv4Hdr;
+    struct udphdr udpHdr;
+    Signature signature;  
 };
 
 /* Sets the receive timout for the UDP socket,
@@ -161,6 +169,76 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
 }
 
 
+void buildIpv6Buffer( std::vector< uint8_t >& buff, const struct ip6_hdr& iphdr, struct udphdr udphdr, 
+            const char* payload, size_t payloadLen )
+{
+    const uint8_t* src = reinterpret_cast< const uint8_t* >( &iphdr.ip6_src );
+    const uint8_t* dst = reinterpret_cast< const uint8_t* >( &iphdr.ip6_dst );
+    buff.insert( buff.end(), src, src + 16 );
+    buff.insert( buff.end(), dst, dst + 16 );
+
+    uint32_t upperLen = htonl( static_cast< uint32_t >( sizeof( udphdr ) + payloadLen ) );
+    const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &upperLen );
+    buff.insert( buff.end(), ulenBytes, ulenBytes + 4 );
+
+    buff.push_back( 0 ); buff.push_back( 0 ); buff.push_back( 0 );
+    buff.push_back( IPPROTO_UDP );
+
+    udphdr.uh_sum = 0; // checksum field must be zero while computing
+    const uint8_t* uh = reinterpret_cast< const uint8_t* >( &udphdr );
+    buff.insert( buff.end(), uh, uh + sizeof( udphdr ) );
+
+    buff.insert( buff.end(), payload, payload + payloadLen );
+    if( buff.size() % 2 != 0 ) 
+    {
+        buff.push_back( 0 ); // pad to even length
+    }
+}
+
+void buildIpv4Buffer( std::vector< uint8_t >& buff, const struct ip& ipv4hdr )
+{
+    const uint8_t* src = reinterpret_cast< const uint8_t* >( &ipv4hdr.ip_src );
+    const uint8_t* dst = reinterpret_cast< const uint8_t* >( &ipv4hdr.ip_dst );
+
+    buff.insert( buff.end(), src, src + 4 );
+    buff.insert( buff.end(), dst, dst + 4 );
+
+    uint32_t upperLen = htonl( static_cast< uint32_t >( sizeof( udphdr ) ) );
+    const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &upperLen );
+    buff.insert( buff.end(), ulenBytes, ulenBytes + 4 );
+
+    buff.push_back( 0 ); buff.push_back( 0 ); buff.push_back( 0 );
+    buff.push_back( IPPROTO_UDP );
+
+    if( buff.size() % 2 != 0 ) 
+    {
+        buff.push_back( 0 ); // pad to even length
+    }
+}
+
+
+int checksum( std::vector< uint8_t > buff )
+{
+    uint32_t sum = 0;
+    for( size_t i = 0; i < buff.size(); i += 2 )
+    {
+        sum += ( static_cast< uint16_t >( buff[i] ) << 8 ) | buff[i + 1];
+    }
+
+    while( sum >> 16 )
+    {
+        sum = ( sum & 0xFFFF ) + ( sum >> 16 );
+    }
+
+    uint16_t result = static_cast< uint16_t >( ~sum );
+    if( result == 0 ) 
+    {
+        result = 0xFFFF; // RFC 8200: zero checksum is invalid, use all-ones
+    }
+
+    return htons( result );
+}
+
 int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData& secretData )
 {
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
@@ -174,8 +252,7 @@ int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData&
     }
 
     destaddr.sin_port = htons( secretData.secretPort );
-    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
-    sizeof( destaddr ) )  < 0 )
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) )  < 0 )
     {
         perror("Error: Failed to establish connection with receiver" );
         return 1;
@@ -191,18 +268,18 @@ int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData&
         return 1;
     }
 
-    secretData.groupId = static_cast< uint8_t >( static_cast< unsigned char >( reply[0] ) );
+    secretData.signature.groupId = static_cast< uint8_t >( static_cast< unsigned char >( reply[0] ) );
     
     uint32_t challengeNumber;
     memcpy( &challengeNumber, &reply[1], sizeof( challengeNumber ) );
 
-    secretData.secretSigil = secretNumber ^ ntohl( challengeNumber );
+    secretData.signature.secretSigil = secretNumber ^ ntohl( challengeNumber );
 
-    uint32_t sigilNetOrder = htonl( secretData.secretSigil );
+    uint32_t sigilNetOrder = htonl( secretData.signature.secretSigil );
     
     std::string newMessage;
     newMessage.resize( 1 + sizeof( uint32_t ) );
-    newMessage[0] = static_cast< char >( secretData.groupId );
+    newMessage[0] = static_cast< char >( secretData.signature.groupId );
     memcpy( &newMessage[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
 
     char buffer[2048];
@@ -227,44 +304,6 @@ int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData&
 
     secretData.hiddenPort = std::stoi( replyText.substr( colonPos + 1 ) );
     return 0;
-}
-
-
-int checksum( const struct ip6_hdr& iphdr, struct udphdr udphdr, 
-            const char* payload, size_t payloadLen  )
-{
-    std::vector< uint8_t > buff;
-
-    const uint8_t* src = reinterpret_cast< const uint8_t* >( &iphdr.ip6_src );
-    const uint8_t* dst = reinterpret_cast< const uint8_t* >( &iphdr.ip6_dst );
-    buff.insert( buff.end(), src, src + 16 );
-    buff.insert( buff.end(), dst, dst + 16 );
-
-    uint32_t upperLen = htonl( static_cast< uint32_t >( sizeof( udphdr ) + payloadLen ) );
-    const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &upperLen );
-    buff.insert( buff.end(), ulenBytes, ulenBytes + 4 );
-
-    buff.push_back( 0 ); buff.push_back( 0 ); buff.push_back( 0 );
-    buff.push_back( IPPROTO_UDP );
-
-    udphdr.uh_sum = 0; // checksum field must be zero while computing
-    const uint8_t* uh = reinterpret_cast< const uint8_t* >( &udphdr );
-    buff.insert( buff.end(), uh, uh + sizeof( udphdr ) );
-
-    buff.insert( buff.end(), payload, payload + payloadLen );
-    if( buff.size() % 2 != 0 ) buff.push_back( 0 ); // pad to even length
-
-    uint32_t sum = 0;
-    for( size_t i = 0; i < buff.size(); i += 2 )
-        sum += ( static_cast< uint16_t >( buff[i] ) << 8 ) | buff[i + 1];
-
-    while( sum >> 16 )
-        sum = ( sum & 0xFFFF ) + ( sum >> 16 );
-
-    uint16_t result = static_cast< uint16_t >( ~sum );
-    if( result == 0 ) result = 0xFFFF; // RFC 8200: zero checksum is invalid, use all-ones
-
-    return htons( result );
 }
 
 
@@ -293,19 +332,20 @@ int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianD
     };
     
     char payload[5];
-    payload[0] = static_cast< char >( guardianData.groupId );
-    uint32_t sigilNetOrder = htonl( guardianData.secretSigil );
+    payload[0] = static_cast< char >( guardianData.signature.groupId );
+    uint32_t sigilNetOrder = htonl( guardianData.signature.secretSigil );
     memcpy( &payload[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
     
-    replyUdpHdr.uh_sum = checksum( replyHdr, replyUdpHdr, payload, payloadLen );  
+    std::vector< uint8_t > buff;
+    buildIpv6Buffer( buff, replyHdr, replyUdpHdr, payload, payloadLen );
+    replyUdpHdr.uh_sum = checksum( buff );  
 
     memcpy( &newMessage[0], &replyHdr, sizeof( replyHdr ) );
     memcpy( &newMessage[ sizeof( replyHdr ) ], &replyUdpHdr, sizeof( replyUdpHdr ) );
     memcpy( &newMessage[ sizeof( replyHdr ) + sizeof( replyUdpHdr ) ], &payload, payloadLen );
     
     destaddr.sin_port = htons( guardianData.guardianPort );
-    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
-        sizeof( destaddr ) ) < 0 )
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
     {
         perror("Error: Failed to establish connection with receiver" );
         return 1;
@@ -343,6 +383,88 @@ int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianD
     return 0; 
 }   
 
+
+int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& evilBitData )
+{
+    const size_t hdrLen = sizeof( struct ip ) + sizeof( struct udphdr );
+
+    int rawSockfd;
+    if( ( rawSockfd = socket( AF_INET, SOCK_RAW, IPPROTO_UDP ) ) < 0 )
+    {
+        perror("Error: Failed to create RAW socket aarggh!! Socket is NOT RAW >:( !!!!");
+        close( rawSockfd );
+        exit( 1 );
+    }
+    
+    if( setSocketTimeout( TIMEOUT_MS, rawSockfd) < 0 )
+    {
+        perror( "Error: Couldn't set socket timeout" );
+        close( rawSockfd );
+        exit( 1 );
+    }
+
+    struct sockaddr_in local;
+    socklen_t len = sizeof(local);
+    getsockname(sockfd, (struct sockaddr*)&local, &len);
+
+    
+    if( bind( rawSockfd, ( struct sockaddr* )&local, sizeof( local ) ) < 0 )
+    {
+        perror( "Error: Bind failed" );
+        close( rawSockfd );
+        exit( 1 );
+    }
+
+    evilBitData.ipv4Hdr = 
+    {
+        5,
+        IPVERSION,
+        0,
+        htons( hdrLen ),
+        htons( 0 ),
+        htons( IP_RF ), // evil bit hehehe
+        64,
+        IPPROTO_UDP,
+        0,
+        local.sin_addr.s_addr,
+        destaddr.sin_addr.s_addr,
+    };
+
+    std::vector< uint8_t > buff;
+    buildIpv4Buffer( buff, evilBitData.ipv4Hdr );
+    evilBitData.ipv4Hdr.ip_sum = checksum( buff );
+    
+    destaddr.sin_port = htons( evilBitData.evilPort );
+    if( connect( rawSockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
+        return 1;
+    }
+
+    int one = 1;
+    if( ( setsockopt(rawSockfd, IPPROTO_IP, IP_HDRINCL, &one, sizeof( one ) ) ) < 0 )
+    {
+        perror("Error: Failed to set socket option" );
+        return 1;
+    }
+
+    std::string message;
+    message.resize( sizeof( evilBitData.ipv4Hdr ) );
+    memcpy( &message[0], &evilBitData.ipv4Hdr, sizeof( evilBitData.ipv4Hdr ) );
+
+    char buffer[2048];
+    int bytesReceived = sendToPort( rawSockfd, message, buffer, sizeof( buffer ) );
+    if( bytesReceived < 0 )
+    {
+        std::cerr << "Error (1): Bad reply from Evil port " << evilBitData.evilPort
+                << " (" << bytesReceived << " bytes)" << std::endl;
+        return 1; 
+    }
+
+    close( rawSockfd );
+    return 0;
+}
+
 /*
 The Main function reads the IP Address and port range from
  the command line arguments, it creates the UDP socket and sets 
@@ -379,12 +501,14 @@ int main( int argc, char* argv[] )
     if( ( sockfd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 )
     {
         perror( "Error: Socket couldn't be created\n" );
+        close( sockfd );
         exit( 1 );
     }
 
     if( setSocketTimeout( TIMEOUT_MS, sockfd) < 0 )
     {
         perror( "Error: Couldn't set socket timeout" );
+        close( sockfd );
         exit( 1 );
     }
 
@@ -392,6 +516,7 @@ int main( int argc, char* argv[] )
     if( ( inet_pton( AF_INET, ipaddr, &destaddr.sin_addr ) ) < 1 )
     {
         std::cerr << "Error: Invalid IP addres or address family\n " << ipaddr << std::endl;
+        close( sockfd );
         exit( 1 );
     } 
 
@@ -405,16 +530,17 @@ int main( int argc, char* argv[] )
 
     SecretData secretData;
     GuardianData guardianData;
+    EvilBitData evilBitData;
 
     // send a light-weight packet to each port and map their response to a key-value
     // for later use
     for( const auto& port : openPorts )
     {
         destaddr.sin_port = htons( port );
-        if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
-        sizeof( destaddr ) )  < 0 )
+        if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) )  < 0 )
         {
             perror("Error: Failed to establish connection with receiver" );
+            close( sockfd );
             exit( 1 );
         }
         
@@ -424,6 +550,7 @@ int main( int argc, char* argv[] )
         if( bytesReceived < 0 )
         {
             std::cerr << "Error: Couldn't scan port: " << port << std::endl;
+            close( sockfd );
             exit( 1 );
         }
 
@@ -432,6 +559,7 @@ int main( int argc, char* argv[] )
         if( mapToPort( bytesReceived, port, portMap) != 0 )
         {
             std::cerr << "Error: Couln't map to port: " << port << std::endl;
+            close( sockfd );
             exit( 1 );
         }
         
@@ -449,19 +577,27 @@ int main( int argc, char* argv[] )
     if( solveSecretPort( sockfd, destaddr, secretData) != 0 )
     {
         std::cerr << "Error: Secret Port couldn't be solved" << std::endl;
+        close( sockfd );
         exit( 1 );   
     }
 
+    guardianData.signature = secretData.signature;
     guardianData.guardianPort = portMap.at( 404 );
-    guardianData.groupId = secretData.groupId;
-    guardianData.secretSigil = secretData.secretSigil;
     if( solveGuardianPort( sockfd, destaddr, guardianData) != 0 )
     {
         std::cerr << "Error: Guardian Port couldn't be solved" << std::endl;
+        close( sockfd );
         exit( 1 );
     }
 
-
+    evilBitData.evilPort = portMap.at( 184 );
+    evilBitData.signature = secretData.signature;
+    if( solveEvilPort( sockfd, destaddr, evilBitData ) != 0 )
+    {
+        std::cerr << "Error: Evil Port couldn't be solved" << std::endl;
+        close( sockfd );
+        exit( 1 );
+    } 
 
 
     close( sockfd );
