@@ -1,4 +1,4 @@
-#include <ostream>
+#include <netinet/ip6.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -9,8 +9,8 @@
 #include <stdio.h>
 
 #include <iostream>
-
-#include <iterator>
+#include <iomanip>
+#include <ostream>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -23,13 +23,20 @@
 
 
 const int MAX_RETRIES = 5;
-const int TIMEOUT_MS = 10;
+const int TIMEOUT_MS = 30;
 
 struct SecretData {
-    int groupId;
-    int hiddenPort;
     int secretPort;
-    int secretSigil;
+    int hiddenPort;
+    uint8_t groupId;
+    uint32_t secretSigil;
+};
+
+struct GuardianData {
+    int guardianPort;
+    uint8_t groupId;
+    uint32_t secretSigil;
+    struct ip6_hdr responseHdr;
 };
 
 /* Sets the receive timout for the UDP socket,
@@ -61,18 +68,17 @@ int setSocketTimeout( int ms, const int sockfd )
 int mapToPort( char* buff, const int port, std::map< std::string, int >& portMap )
 {
     std::string buffContent =  static_cast< std::string >( buff );
-    
     for ( const auto& entry : portMap ) 
     {
         const std::string &key = entry.first;
-
         if( buffContent.find( key ) != std::string::npos )
         {
             portMap[key] = port;
+            return 0;
         }
     }
 
-    return 0;
+    return 1;
 }
 
 
@@ -88,7 +94,7 @@ Return:
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
-int sendToPort( const int sockfd, const int port, std::string data, char* buff, size_t buffSize ) 
+int sendToPort( const int sockfd, std::string data, char* buff, size_t buffSize ) 
 {    
     for( int attempt = 0; attempt < MAX_RETRIES; attempt++ )
     {
@@ -145,8 +151,7 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
 }
 
 
-
-int secretPortChallenge( const int sockfd, struct sockaddr_in& destaddr, SecretData& secretData )
+int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData& secretData )
 {
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
     const std::string userNames = "aroni21, bergurpb24, kormakur24"; // Usernames
@@ -167,42 +172,105 @@ int secretPortChallenge( const int sockfd, struct sockaddr_in& destaddr, SecretD
     }
 
     char reply[5];
-    int bytesReceived = sendToPort( sockfd, secretData.secretPort, secretMessage, reply, sizeof( reply ) );
-    if( bytesReceived < 0 || bytesReceived != sizeof( reply ) )
+    // expecting response: group ID + challenge number
+    int bytesReceived = sendToPort( sockfd, secretMessage, reply, sizeof( reply ) );
+    if( bytesReceived != static_cast< int >( sizeof( reply ) ) )
     {
-        std::cerr << "Error: unexpected reply size from port " << secretData.secretPort << std::endl;
+        std::cerr << "Error (1): Bad reply from S.E.C.R.E.T. port " << secretData.secretPort
+                << " (" << bytesReceived << " bytes)" << std::endl;
         return 1;
     }
 
-    secretData.groupId = static_cast<int>( static_cast< unsigned char >( reply[0] ) );
+    secretData.groupId = static_cast< uint8_t >( static_cast< unsigned char >( reply[0] ) );
     
     uint32_t challengeNumber;
     memcpy( &challengeNumber, &reply[1], sizeof( challengeNumber ) );
 
     secretData.secretSigil = secretNumber ^ ntohl( challengeNumber );
 
-    // uint32_t groupId_NetOrder = htonl( secretData.groupId );
-    uint32_t sigil_NetOrder   = htonl( secretData.secretSigil );
+    uint32_t sigilNetOrder = htonl( secretData.secretSigil );
     
     std::string newMessage;
     newMessage.resize( 1 + sizeof( uint32_t ) );
-    newMessage[0] = static_cast<char>( secretData.groupId );
-    memcpy( &newMessage[1], &sigil_NetOrder, sizeof( sigil_NetOrder ) );
+    newMessage[0] = static_cast< char >( secretData.groupId );
+    memcpy( &newMessage[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
 
-    char buffer[ sizeof( uint32_t ) ];
-    bytesReceived = sendToPort( sockfd, secretData.secretPort, newMessage, buffer, sizeof( buffer ) );
-    if( bytesReceived < 0 || bytesReceived != sizeof( buffer ) )
+    char buffer[2048];
+    // expected reponse: reveal hidden port
+    bytesReceived = sendToPort( sockfd, newMessage, buffer, sizeof( buffer ) - 1 );
+    if( bytesReceived < 0 )
     {
-        std::cerr << "Error: Couldn't scan port: " << secretData.secretPort << std::endl;
+        std::cerr << "Error (2): Bad reply from S.E.C.R.E.T. port " << secretData.secretPort
+                << " (" << bytesReceived << " bytes)" << std::endl;
         return 1;
     }
 
-    uint32_t replyPortNumber;
-    memcpy( &replyPortNumber, &buffer, sizeof( replyPortNumber ) );
-    secretData.hiddenPort = ntohl( replyPortNumber );
-    
+    buffer[ bytesReceived ] = '\0';
+
+    std::string replyText( buffer );
+    size_t colonPos = replyText.rfind( ':' );
+    if( colonPos == std::string::npos )
+    {
+        std::cerr << "Error: couldn't find port number in reply: " << replyText << std::endl;
+        return 1;
+    }
+
+    secretData.hiddenPort = std::stoi( replyText.substr( colonPos + 1 ) );
     return 0;
 }
+
+int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianData& guardianData )
+{
+    
+    std::string newMessage;
+    newMessage.resize( sizeof( guardianData.responseHdr ) + 1 + sizeof( uint32_t ) );
+    
+    struct ip6_hdr replyHdr;
+    memcpy( &replyHdr, &guardianData.responseHdr, sizeof( guardianData.responseHdr ) );
+    
+    replyHdr.ip6_dst = guardianData.responseHdr.ip6_src;
+    replyHdr.ip6_src = guardianData.responseHdr.ip6_dst;
+
+    // std::string hdrString;
+
+    // const char* un1 = reinterpret_cast< const char* >( &replyHdr.ip6_ctlun.ip6_un1 );
+    // const char* un2 = reinterpret_cast< const char* >( &replyHdr.ip6_ctlun.ip6_un2_vfc );
+
+    // const char* dst = reinterpret_cast< const char* >( &replyHdr.ip6_dst );
+    // const char* src = reinterpret_cast< const char* >( &replyHdr.ip6_src );
+
+    // hdrString.append( un1, sizeof( un1 ) );
+    // hdrString.append( un2, sizeof( un2 ) );
+    // hdrString.append( dst, sizeof( dst ) );
+    // hdrString.append( src, sizeof( src ) );
+
+    newMessage.append( reinterpret_cast< const char* >( &replyHdr ), sizeof( replyHdr ) );
+    uint32_t sigilNetOrder = htonl( guardianData.secretSigil );
+    memcpy( &newMessage[ sizeof( guardianData.responseHdr ) ], &guardianData.groupId, 1 );
+    memcpy( &newMessage[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
+
+    destaddr.sin_port = htons( guardianData.guardianPort );
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
+        sizeof( destaddr ) ) < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
+        return 1;
+    }
+    
+    char buffer[2048];
+    int bytesReceived = sendToPort( sockfd, newMessage, buffer, sizeof( buffer) );
+    if( bytesReceived < 0 )
+    {
+        std::cerr << "Error (1): Bad reply from Guardian port " << guardianData.guardianPort
+                << " (" << bytesReceived << " bytes)" << std::endl;
+        return 1;
+    } 
+    
+    buffer[ bytesReceived ] = '\0';
+    std::cout << bytesReceived << buffer << std::endl;
+
+    return 0; 
+}   
 
 /*
 The Main function reads the IP Address and port range from
@@ -259,13 +327,17 @@ int main( int argc, char* argv[] )
     std::map< std::string, int > portMap = {
         {"D.R.A.G.O.N", -1},
         {"evil port", -1},
-        {"guardian", -1},
-        {"S.E.C.R.E.T.", -1}
+        {"the guardian", -1},
+        {"S.E.C.R.E.T.:", -1}
     }; 
 
+    SecretData secretData;
+    GuardianData guardianData;
+
+    // send a light-weight packet to each port and map their response to a key-value
+    // for later use
     for( const auto& port : openPorts )
     {
-        
         destaddr.sin_port = htons( port );
         if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
         sizeof( destaddr ) )  < 0 )
@@ -275,9 +347,9 @@ int main( int argc, char* argv[] )
         }
         
         char buffer[2048];
-        int bytesReceived;
+        int bytesReceived = sendToPort( sockfd, "Hello!", buffer, sizeof( buffer ) );
 
-        if( ( bytesReceived = sendToPort( sockfd, port, "Hello!", buffer, sizeof( buffer ) ) ) < 0 )
+        if( bytesReceived < 0 )
         {
             std::cerr << "Error: Couldn't scan port: " << port << std::endl;
             exit( 1 );
@@ -285,39 +357,36 @@ int main( int argc, char* argv[] )
 
         buffer[ bytesReceived ] = '\0';
 
-        
-        if( mapToPort( buffer, port, portMap) < 0 )
+        if( mapToPort( buffer, port, portMap) != 0 )
         {
             std::cerr << "Error: Couln't map to port: " << port << std::endl;
             exit( 1 );
         }
+        
+        // check if current port is guardian port
+        if( port == portMap.at( "the guardian" ) )
+        {
+            // copy the raw binary structure at the front of response
+            memcpy(&guardianData.responseHdr, buffer, sizeof( guardianData.responseHdr ) );
+        }
     }
 
-    SecretData secretData;
-    secretData.secretPort = portMap.at( "S.E.C.R.E.T." );
-
-    if( secretPortChallenge( sockfd, destaddr, secretData) < 0 )
+    secretData.secretPort = portMap.at( "S.E.C.R.E.T.:" );
+    if( solveSecretPort( sockfd, destaddr, secretData) != 0 )
     {
-        std::cerr << "Error: Couldn't scan port " << std::endl;
+        std::cerr << "Error: Secret Port couldn't be solved" << std::endl;
         exit( 1 );   
     }
 
-    destaddr.sin_port = htons( secretData.hiddenPort );
-    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
-    sizeof( destaddr ) )  < 0 )
+    guardianData.guardianPort = portMap.at("the guardian");
+    if( solveGuardianPort( sockfd, destaddr, guardianData) != 0 )
     {
-        perror("Error: Failed to establish connection with receiver" );
+        std::cerr << "Error: Guardian Port couldn't be solved" << std::endl;
         exit( 1 );
     }
-    
-    char buffer[2048];
 
-    int bytesReceived = sendToPort( sockfd, secretData.secretPort, "Hellow!", buffer, sizeof( buffer ) );
-    if( bytesReceived < 0 || bytesReceived != sizeof( buffer ) )
-    {
-        std::cerr << "Error: Couldn't scan port: " << secretData.hiddenPort << std::endl;
-        return 1;
-    }
+
+
 
     close( sockfd );
 
