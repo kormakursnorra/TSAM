@@ -1,4 +1,5 @@
 #include <netinet/ip6.h>
+#include <netinet/udp.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
+#include <bitset>
 #include <cerrno>
 #include <string>
 #include <vector>
@@ -25,18 +27,28 @@
 const int MAX_RETRIES = 5;
 const int TIMEOUT_MS = 30;
 
-struct SecretData {
+struct SecretData 
+{
     int secretPort;
     int hiddenPort;
     uint8_t groupId;
     uint32_t secretSigil;
 };
 
-struct GuardianData {
+struct GuardianData 
+{
     int guardianPort;
     uint8_t groupId;
     uint32_t secretSigil;
+    std::string secretSpell;
     struct ip6_hdr responseHdr;
+    struct udphdr responseUdpHdr;  
+};
+
+struct EvilData 
+{
+    int evilPort;
+
 };
 
 /* Sets the receive timout for the UDP socket,
@@ -65,19 +77,17 @@ int setSocketTimeout( int ms, const int sockfd )
 /*
 
 */
-int mapToPort( char* buff, const int port, std::map< std::string, int >& portMap )
+int mapToPort( const int bytesReceived, const int port, std::map< int, int >& portMap )
 {
-    std::string buffContent =  static_cast< std::string >( buff );
     for ( const auto& entry : portMap ) 
     {
-        const std::string &key = entry.first;
-        if( buffContent.find( key ) != std::string::npos )
+        const int &key = entry.first;
+        if( key == bytesReceived )
         {
             portMap[key] = port;
             return 0;
         }
     }
-
     return 1;
 }
 
@@ -219,36 +229,80 @@ int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData&
     return 0;
 }
 
+
+int checksum( const struct ip6_hdr& iphdr, struct udphdr udphdr, 
+            const char* payload, size_t payloadLen  )
+{
+    std::vector< uint8_t > buff;
+
+    const uint8_t* src = reinterpret_cast< const uint8_t* >( &iphdr.ip6_src );
+    const uint8_t* dst = reinterpret_cast< const uint8_t* >( &iphdr.ip6_dst );
+    buff.insert( buff.end(), src, src + 16 );
+    buff.insert( buff.end(), dst, dst + 16 );
+
+    uint32_t upperLen = htonl( static_cast< uint32_t >( sizeof( udphdr ) + payloadLen ) );
+    const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &upperLen );
+    buff.insert( buff.end(), ulenBytes, ulenBytes + 4 );
+
+    buff.push_back( 0 ); buff.push_back( 0 ); buff.push_back( 0 );
+    buff.push_back( IPPROTO_UDP );
+
+    udphdr.uh_sum = 0; // checksum field must be zero while computing
+    const uint8_t* uh = reinterpret_cast< const uint8_t* >( &udphdr );
+    buff.insert( buff.end(), uh, uh + sizeof( udphdr ) );
+
+    buff.insert( buff.end(), payload, payload + payloadLen );
+    if( buff.size() % 2 != 0 ) buff.push_back( 0 ); // pad to even length
+
+    uint32_t sum = 0;
+    for( size_t i = 0; i < buff.size(); i += 2 )
+        sum += ( static_cast< uint16_t >( buff[i] ) << 8 ) | buff[i + 1];
+
+    while( sum >> 16 )
+        sum = ( sum & 0xFFFF ) + ( sum >> 16 );
+
+    uint16_t result = static_cast< uint16_t >( ~sum );
+    if( result == 0 ) result = 0xFFFF; // RFC 8200: zero checksum is invalid, use all-ones
+
+    return htons( result );
+}
+
+
 int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianData& guardianData )
 {
-    
+    const size_t payloadLen = 1 + sizeof( uint32_t );              
+    const size_t udpLen     = sizeof( struct udphdr ) + payloadLen;
+    const size_t totalLen   = sizeof( struct ip6_hdr ) + udpLen;
+
     std::string newMessage;
-    newMessage.resize( sizeof( guardianData.responseHdr ) + 1 + sizeof( uint32_t ) );
+    newMessage.resize( totalLen );
     
-    struct ip6_hdr replyHdr;
-    memcpy( &replyHdr, &guardianData.responseHdr, sizeof( guardianData.responseHdr ) );
-    
+    struct ip6_hdr replyHdr = guardianData.responseHdr;
     replyHdr.ip6_dst = guardianData.responseHdr.ip6_src;
     replyHdr.ip6_src = guardianData.responseHdr.ip6_dst;
-
-    // std::string hdrString;
-
-    // const char* un1 = reinterpret_cast< const char* >( &replyHdr.ip6_ctlun.ip6_un1 );
-    // const char* un2 = reinterpret_cast< const char* >( &replyHdr.ip6_ctlun.ip6_un2_vfc );
-
-    // const char* dst = reinterpret_cast< const char* >( &replyHdr.ip6_dst );
-    // const char* src = reinterpret_cast< const char* >( &replyHdr.ip6_src );
-
-    // hdrString.append( un1, sizeof( un1 ) );
-    // hdrString.append( un2, sizeof( un2 ) );
-    // hdrString.append( dst, sizeof( dst ) );
-    // hdrString.append( src, sizeof( src ) );
-
-    newMessage.append( reinterpret_cast< const char* >( &replyHdr ), sizeof( replyHdr ) );
+    replyHdr.ip6_plen = htons( static_cast< uint16_t >( udpLen ) );
+    
+    memcpy(&newMessage[0], &replyHdr, sizeof( replyHdr ) );
+    
+    struct udphdr replyUdpHdr = 
+    {
+        guardianData.responseUdpHdr.uh_dport,
+        guardianData.responseUdpHdr.uh_sport,
+        htons( static_cast< uint16_t >( udpLen ) ),
+        0
+    };
+    
+    char payload[5];
+    payload[0] = static_cast< char >( guardianData.groupId );
     uint32_t sigilNetOrder = htonl( guardianData.secretSigil );
-    memcpy( &newMessage[ sizeof( guardianData.responseHdr ) ], &guardianData.groupId, 1 );
-    memcpy( &newMessage[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
+    memcpy( &payload[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
+    
+    replyUdpHdr.uh_sum = checksum( replyHdr, replyUdpHdr, payload, payloadLen );  
 
+    memcpy( &newMessage[0], &replyHdr, sizeof( replyHdr ) );
+    memcpy( &newMessage[ sizeof( replyHdr ) ], &replyUdpHdr, sizeof( replyUdpHdr ) );
+    memcpy( &newMessage[ sizeof( replyHdr ) + sizeof( replyUdpHdr ) ], &payload, payloadLen );
+    
     destaddr.sin_port = htons( guardianData.guardianPort );
     if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), 
         sizeof( destaddr ) ) < 0 )
@@ -267,8 +321,25 @@ int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianD
     } 
     
     buffer[ bytesReceived ] = '\0';
-    std::cout << bytesReceived << buffer << std::endl;
+    size_t textStart = 0;
+    while( textStart < static_cast< size_t >( bytesReceived ) &&
+        !( std::isprint( static_cast< unsigned char >( buffer[textStart] ) ) ||
+            buffer[textStart] == '\n' ) )
+    {
+        textStart++;
+    }
 
+    std::string fullResponse( buffer + textStart, bytesReceived - textStart );
+    size_t firstQuote = fullResponse.find( '"' );
+    size_t secondQuote = fullResponse.find( '"', firstQuote + 1 );
+    
+    if( firstQuote == std::string::npos || secondQuote == std::string::npos )
+    {
+        std::cerr << "Error: couldn't find secret spell in reply: " << fullResponse << std::endl;
+        return 1;
+    }
+
+    guardianData.secretSpell = fullResponse.substr( firstQuote + 1, secondQuote - firstQuote - 1 );
     return 0; 
 }   
 
@@ -324,11 +395,12 @@ int main( int argc, char* argv[] )
         exit( 1 );
     } 
 
-    std::map< std::string, int > portMap = {
-        {"D.R.A.G.O.N", -1},
-        {"evil port", -1},
-        {"the guardian", -1},
-        {"S.E.C.R.E.T.:", -1}
+    // key-value: bytes received - port
+    std::map< int, int > portMap = {
+        { 614, -1 }, // dragon
+        { 184, -1 }, // evil port
+        { 404, -1 }, // guardian
+        { 1107, -1 } // secret
     }; 
 
     SecretData secretData;
@@ -357,28 +429,32 @@ int main( int argc, char* argv[] )
 
         buffer[ bytesReceived ] = '\0';
 
-        if( mapToPort( buffer, port, portMap) != 0 )
+        if( mapToPort( bytesReceived, port, portMap) != 0 )
         {
             std::cerr << "Error: Couln't map to port: " << port << std::endl;
             exit( 1 );
         }
         
         // check if current port is guardian port
-        if( port == portMap.at( "the guardian" ) )
+        if( port == portMap.at( 404 ) )
         {
             // copy the raw binary structure at the front of response
             memcpy(&guardianData.responseHdr, buffer, sizeof( guardianData.responseHdr ) );
+            memcpy( &guardianData.responseUdpHdr, buffer + sizeof( guardianData.responseHdr ),
+             sizeof( guardianData.responseUdpHdr ) );
         }
     }
 
-    secretData.secretPort = portMap.at( "S.E.C.R.E.T.:" );
+    secretData.secretPort = portMap.at( 1107 );
     if( solveSecretPort( sockfd, destaddr, secretData) != 0 )
     {
         std::cerr << "Error: Secret Port couldn't be solved" << std::endl;
         exit( 1 );   
     }
 
-    guardianData.guardianPort = portMap.at("the guardian");
+    guardianData.guardianPort = portMap.at( 404 );
+    guardianData.groupId = secretData.groupId;
+    guardianData.secretSigil = secretData.secretSigil;
     if( solveGuardianPort( sockfd, destaddr, guardianData) != 0 )
     {
         std::cerr << "Error: Guardian Port couldn't be solved" << std::endl;
