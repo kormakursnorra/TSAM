@@ -26,7 +26,7 @@
 
 
 const int MAX_RETRIES = 5;
-const int TIMEOUT_MS = 30;
+const int TIMEOUT_MS = 1000;
 
 
 struct Signature 
@@ -386,7 +386,9 @@ int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianD
 
 int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& evilBitData )
 {
-    const size_t hdrLen = sizeof( struct ip ) + sizeof( struct udphdr );
+    const size_t payloadLen = 5;
+    const size_t udpLen = sizeof(struct udphdr ) + payloadLen;
+    const size_t hdrLen = sizeof( struct ip ) + udpLen;
 
     int rawSockfd;
     if( ( rawSockfd = socket( AF_INET, SOCK_RAW, IPPROTO_UDP ) ) < 0 )
@@ -403,26 +405,30 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         exit( 1 );
     }
 
+    destaddr.sin_port = htons( evilBitData.evilPort );
+    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
+    {
+        perror("Error: Failed to establish connection with receiver" );
+        return 1;
+    }
+
+
     struct sockaddr_in local;
     socklen_t len = sizeof(local);
     getsockname(sockfd, (struct sockaddr*)&local, &len);
 
-    
-    if( bind( rawSockfd, ( struct sockaddr* )&local, sizeof( local ) ) < 0 )
-    {
-        perror( "Error: Bind failed" );
-        close( rawSockfd );
-        exit( 1 );
-    }
 
     evilBitData.ipv4Hdr = 
     {
         5,
         IPVERSION,
         0,
-        htons( hdrLen ),
-        htons( 0 ),
-        htons( IP_RF ), // evil bit hehehe
+        //htons( hdrLen ),
+        //htons( 0 ),
+        //htons( IP_RF ), // evil bit hehehe
+        static_cast< uint16_t >( hdrLen ),
+        0,
+        IP_RF,
         64,
         IPPROTO_UDP,
         0,
@@ -430,9 +436,73 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         destaddr.sin_addr.s_addr,
     };
 
-    std::vector< uint8_t > buff;
-    buildIpv4Buffer( buff, evilBitData.ipv4Hdr );
-    evilBitData.ipv4Hdr.ip_sum = checksum( buff );
+    evilBitData.udpHdr.uh_sport = local.sin_port;
+
+    evilBitData.udpHdr.uh_dport = htons( evilBitData.evilPort );
+    evilBitData.udpHdr.uh_ulen = htons( static_cast< uint16_t >( udpLen ) );
+    evilBitData.udpHdr.uh_sum = 0;  
+
+    char payload[5];
+
+    payload[0] = static_cast< char >( evilBitData.signature.groupId );
+
+    uint32_t sigilNetOrder = htonl( evilBitData.signature.secretSigil );
+
+    memcpy( &payload[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
+
+
+
+    std::vector< uint8_t > udpBuff;
+
+    // Source IPv4 
+    const uint8_t* src = reinterpret_cast< const uint8_t* >( &evilBitData.ipv4Hdr.ip_src );
+    udpBuff.insert( udpBuff.end(), src, src + 4 );
+
+    // Destination IPv4
+    const uint8_t* dst = reinterpret_cast< const uint8_t* >( &evilBitData.ipv4Hdr.ip_dst );
+    udpBuff.insert( udpBuff.end(), dst, dst + 4 );
+
+    // Zero 
+    udpBuff.push_back( 0 );
+
+    // Protocol
+    udpBuff.push_back( IPPROTO_UDP );
+
+    // UDP length
+    uint16_t udpLenNet = htons( static_cast< uint16_t >( udpLen ) );
+    const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &udpLenNet );
+    udpBuff.insert( udpBuff.end(), ulenBytes, ulenBytes + 2 );
+
+    // UDP header
+    const uint8_t* udpBytes = reinterpret_cast< const uint8_t* >( &evilBitData.udpHdr );
+    udpBuff.insert( udpBuff.end(), udpBytes, udpBytes + sizeof( evilBitData.udpHdr ) );
+
+    // Payload
+    udpBuff.insert( udpBuff.end(), reinterpret_cast< const uint8_t* >( payload ), reinterpret_cast< const uint8_t* >( payload ) + payloadLen );
+
+    //checksum
+    if ( udpBuff.size() % 2 != 0 )
+    {
+        udpBuff.push_back( 0 );
+    }
+
+    evilBitData.udpHdr.uh_sum = checksum( udpBuff );
+
+
+
+    //////////////
+
+    evilBitData.ipv4Hdr.ip_sum = 0;
+    std::vector< uint8_t > ipBuff(sizeof(evilBitData.ipv4Hdr));
+
+    memcpy( ipBuff.data(), &evilBitData.ipv4Hdr, sizeof( evilBitData.ipv4Hdr));
+    evilBitData.ipv4Hdr.ip_sum = checksum( ipBuff );
+
+
+
+    ////////////
+
+
     
     destaddr.sin_port = htons( evilBitData.evilPort );
     if( connect( rawSockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
@@ -447,19 +517,41 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         perror("Error: Failed to set socket option" );
         return 1;
     }
-
+////////
     std::string message;
-    message.resize( sizeof( evilBitData.ipv4Hdr ) );
-    memcpy( &message[0], &evilBitData.ipv4Hdr, sizeof( evilBitData.ipv4Hdr ) );
+    message.resize( hdrLen );
+    size_t offset = 0;
+
+    memcpy( &message[ offset ], &evilBitData.ipv4Hdr, sizeof( evilBitData.ipv4Hdr));
+
+    offset += sizeof( evilBitData.ipv4Hdr );
+    memcpy( &message[ offset ], &evilBitData.udpHdr, sizeof( evilBitData.udpHdr ) );
+    offset += sizeof( evilBitData.udpHdr );
+    memcpy( &message[ offset ], &payload, payloadLen );
+
+//////
+    
+
+ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
+    if( sent < 0 )
+    {
+        perror( "Error: Failed to send evil packet\n" );
+        close( rawSockfd );
+        return 1;
+    }
 
     char buffer[2048];
-    int bytesReceived = sendToPort( rawSockfd, message, buffer, sizeof( buffer ) );
+    ssize_t bytesReceived = recv( sockfd, buffer, sizeof( buffer ) - 1 , 0 );
+
     if( bytesReceived < 0 )
     {
-        std::cerr << "Error (1): Bad reply from Evil port " << evilBitData.evilPort
-                << " (" << bytesReceived << " bytes)" << std::endl;
+        perror( "Error: No response from Evil port" );
+        close( rawSockfd );
         return 1; 
     }
+
+    buffer[ bytesReceived ] = '\0';
+    std::cout << "Evil port response: " << buffer << std::endl;
 
     close( rawSockfd );
     return 0;
@@ -485,7 +577,7 @@ int main( int argc, char* argv[] )
     }
 
     const char *ipaddr = argv[1];
-    const std::array< int, 4 > openPorts = { 
+    std::vector< int > openPorts = { 
         atoi( argv[2] ), 
         atoi( argv[3] ), 
         atoi( argv[4] ),
@@ -494,7 +586,7 @@ int main( int argc, char* argv[] )
 
 
     int sockfd; // UDP socket
-    struct sockaddr_in destaddr; // Server address 
+    struct sockaddr_in destaddr = {}; // Server address 
 
     destaddr.sin_family = AF_INET;
 
@@ -520,22 +612,24 @@ int main( int argc, char* argv[] )
         exit( 1 );
     } 
 
+    // Declare the necessary data structures for solving ports.
+
+    SecretData secretData = {};
+    GuardianData guardianData = {};
+    EvilBitData evilBitData = {};
+
     // key-value: bytes received - port
     std::map< int, int > portMap = {
         { 614, -1 }, // dragon
         { 184, -1 }, // evil port
         { 404, -1 }, // guardian
         { 1107, -1 } // secret
-    }; 
-
-    SecretData secretData;
-    GuardianData guardianData;
-    EvilBitData evilBitData;
+    };
 
     // send a light-weight packet to each port and map their response to a key-value
     // for later use
     for( const auto& port : openPorts )
-    {
+        {
         destaddr.sin_port = htons( port );
         if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) )  < 0 )
         {
@@ -545,7 +639,7 @@ int main( int argc, char* argv[] )
         }
         
         char buffer[2048];
-        int bytesReceived = sendToPort( sockfd, "Hello!", buffer, sizeof( buffer ) );
+        int bytesReceived = sendToPort( sockfd, "Hello!", buffer, sizeof( buffer ) - 1);
 
         if( bytesReceived < 0 )
         {
