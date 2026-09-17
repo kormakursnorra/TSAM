@@ -54,6 +54,7 @@ struct GuardianData
 struct EvilBitData 
 {
     int evilPort;
+    int HiddenPort;
     struct ip ipv4Hdr;
     struct udphdr udpHdr;
     Signature signature;  
@@ -551,7 +552,20 @@ ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
     }
 
     buffer[ bytesReceived ] = '\0';
-    std::cout << "Evil port response: " << buffer << std::endl;
+    std:: string replyText( buffer, bytesReceived );
+    std::cout << "Evil port response: " << replyText << std::endl;
+    size_t colonPos = replyText.rfind( ':' );
+
+    if ( colonPos == std::string::npos )
+    {
+        std::cerr << "Error: Couldn't find port number in reply: " << replyText << std::endl;
+        close( rawSockfd );
+        return 1;
+    }
+
+    evilBitData.HiddenPort = std::stoi( replyText.substr( colonPos + 1 ) );
+
+    std::cout << "Hidden port is: " << evilBitData.HiddenPort << std::endl;
 
     close( rawSockfd );
     return 0;
