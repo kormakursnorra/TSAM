@@ -59,16 +59,14 @@ struct EvilBitData
     Signature signature;  
 };
 
-/* Sets the receive timout for the UDP socket,
-it is in milliseconds(ms)
-
+/* 
+Sets the receive timout for the UDP socket n milliseconds(ms)
 inputs: 
 ms: timeout duration in milliseconds.
 sockfd: socket to set the timeout on.
 Return:
 0 if the timeout is set successfully.
 -1 if an error occurs.
-
 */
 int setSocketTimeout( int ms, const int sockfd )
 {
@@ -83,7 +81,16 @@ int setSocketTimeout( int ms, const int sockfd )
 
 
 /*
-
+Maps the port numbers to the expected byte count 
+of their respective greetings. A matching key gets
+the value of the port number that produced it.
+inputs:
+bytesReceived: The number of bytes the port greeted with
+port: The UDP port number that sent the reply
+portMap: map of expected response size -> port number
+return:
+0 if the byte count matched a port number and the port was recorded
+1 if no key matched the byte count
 */
 int mapToPort( const int bytesReceived, const int port, std::map< int, int >& portMap )
 {
@@ -105,10 +112,12 @@ The sendToPort function scans a single UPD port by sending data
 to the destination and waiting for a response. The function will try
 MAX_RETRIES times if no response is recieved
 inputs:
-port: the UDP port number to scan
+sockfd: connected UDP socket to send on
 data: the data that is sent to the destination.
+buff: buffer the reply is written into
+buffSize: the capacity of buff
 Return:
-1 if a response is recieved and the port is considered open.
+>0(number of bytes received) if a response is recieved and the port is considered open.
 0 if no response is recieved after all retries.
 -1 if an error occurs while sending or receiving data.
 */
@@ -138,16 +147,17 @@ int sendToPort( const int sockfd, std::string data, char* buff, size_t buffSize 
             return -1;
         }
         
-        // Port is open, return 1
+        // Port is open, return byte count
         return static_cast< int >( received );
     }
     
     return 0;
 }
 
-/* Consturcts a "secret message" as a data packet and 
- to send to the open ports that request it. 
-
+/* 
+constructMessage build the initial S.E.C.R.E.T. handshake message:
+the literal prefix, the group members and a freshly generated 
+32-bit random number appended as four raw bytes in network.
 */
 int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const std::string &userNames)
 {
