@@ -93,17 +93,64 @@ return:
 0 if the byte count matched a port number and the port was recorded
 1 if no key matched the byte count
 */
-int mapToPort( const int bytesReceived, const int port, std::map< int, int >& portMap )
+int mapToPort(
+    const char* buff,
+    int bytesReceived,
+    const int port,
+    std::map<std::string, int>& portMap)
 {
-    for ( const auto& entry : portMap ) 
+    std::string response(buff, bytesReceived);
+
+    // Guardian MUST be checked before S.E.C.R.E.T.
+    // because the Guardian response also mentions S.E.C.R.E.T.
+    if (response.find("guardian of the secret spell") != std::string::npos)
     {
-        const int &key = entry.first;
-        if( key == bytesReceived )
-        {
-            portMap[key] = port;
-            return 0;
-        }
+        portMap["guardian"] = port;
+
+        std::cout << "Mapped port "
+                  << port
+                  << " -> guardian"
+                  << std::endl;
+
+        return 0;
     }
+
+    if (response.find("evil port") != std::string::npos)
+    {
+        portMap["evil port"] = port;
+
+        std::cout << "Mapped port "
+                  << port
+                  << " -> evil port"
+                  << std::endl;
+
+        return 0;
+    }
+
+    if (response.find("D.R.A.G.O.N") != std::string::npos)
+    {
+        portMap["D.R.A.G.O.N"] = port;
+
+        std::cout << "Mapped port "
+                  << port
+                  << " -> D.R.A.G.O.N"
+                  << std::endl;
+
+        return 0;
+    }
+
+    if (response.find("S.E.C.R.E.T.") != std::string::npos)
+    {
+        portMap["S.E.C.R.E.T."] = port;
+
+        std::cout << "Mapped port "
+                  << port
+                  << " -> S.E.C.R.E.T."
+                  << std::endl;
+
+        return 0;
+    }
+
     return 1;
 }
 
@@ -361,37 +408,148 @@ int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianD
         perror("Error: Failed to establish connection with receiver" );
         return 1;
     }
-    
+    ssize_t sent = send(
+    sockfd,
+    newMessage.data(),
+    newMessage.size(),
+    0
+);
+
+if (sent < 0)
+{
+    perror("Error: Failed to send Guardian response");
+    return 1;
+}
+
+bool foundCorrectSpell = false;
+
+while (true)
+{
     char buffer[2048];
-    int bytesReceived = sendToPort( sockfd, newMessage, buffer, sizeof( buffer) );
-    if( bytesReceived < 0 )
-    {
-        std::cerr << "Error (1): Bad reply from Guardian port " << guardianData.guardianPort
-                << " (" << bytesReceived << " bytes)" << std::endl;
-        return 1;
-    } 
-    
-    buffer[ bytesReceived ] = '\0';
-    size_t textStart = 0;
-    while( textStart < static_cast< size_t >( bytesReceived ) &&
-        !( std::isprint( static_cast< unsigned char >( buffer[textStart] ) ) ||
-            buffer[textStart] == '\n' ) )
-    {
-        textStart++;
-    }
 
-    std::string fullResponse( buffer + textStart, bytesReceived - textStart );
-    size_t firstQuote = fullResponse.find( '"' );
-    size_t secondQuote = fullResponse.find( '"', firstQuote + 1 );
-    
-    if( firstQuote == std::string::npos || secondQuote == std::string::npos )
+    ssize_t bytesReceived =
+        recv(sockfd, buffer, sizeof(buffer), 0);
+
+    if (bytesReceived < 0)
     {
-        std::cerr << "Error: couldn't find secret spell in reply: " << fullResponse << std::endl;
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        {
+            break; // no more Guardian packets
+        }
+
+        perror("Error receiving Guardian response");
         return 1;
     }
 
-    guardianData.secretSpell = fullResponse.substr( firstQuote + 1, secondQuote - firstQuote - 1 );
-    return 0; 
+    const size_t headerSize =
+        sizeof(struct ip6_hdr) +
+        sizeof(struct udphdr);
+
+    if (bytesReceived <
+        static_cast<ssize_t>(headerSize))
+    {
+        continue;
+    }
+
+    // Read the inner IPv6 + UDP headers
+    struct ip6_hdr responseIp;
+    struct udphdr responseUdp;
+
+    memcpy(
+        &responseIp,
+        buffer,
+        sizeof(responseIp)
+    );
+
+    memcpy(
+        &responseUdp,
+        buffer + sizeof(responseIp),
+        sizeof(responseUdp)
+    );
+
+    // Does this packet belong to the conversation
+    // that we originally had with the Guardian?
+    bool correctConversation =
+        memcmp(
+            &responseIp.ip6_src,
+            &guardianData.responseHdr.ip6_src,
+            sizeof(struct in6_addr)
+        ) == 0
+        &&
+        memcmp(
+            &responseIp.ip6_dst,
+            &guardianData.responseHdr.ip6_dst,
+            sizeof(struct in6_addr)
+        ) == 0
+        &&
+        responseUdp.uh_sport ==
+            guardianData.responseUdpHdr.uh_sport
+        &&
+        responseUdp.uh_dport ==
+            guardianData.responseUdpHdr.uh_dport;
+
+    // Text begins after IPv6 + UDP headers
+    std::string responseText(
+        buffer + headerSize,
+        bytesReceived - headerSize
+    );
+
+    size_t firstQuote =
+        responseText.find('"');
+
+    size_t secondQuote =
+        responseText.find(
+            '"',
+            firstQuote == std::string::npos
+                ? 0
+                : firstQuote + 1
+        );
+
+    if (firstQuote == std::string::npos ||
+        secondQuote == std::string::npos)
+    {
+        continue;
+    }
+
+    std::string candidateSpell =
+        responseText.substr(
+            firstQuote + 1,
+            secondQuote - firstQuote - 1
+        );
+
+    std::cout
+        << "Guardian phrase candidate: \""
+        << candidateSpell
+        << "\"";
+
+    if (correctConversation)
+    {
+        std::cout << "  <-- matches our conversation";
+
+        guardianData.secretSpell =
+            candidateSpell;
+
+        foundCorrectSpell = true;
+    }
+
+    std::cout << std::endl;
+}
+
+if (!foundCorrectSpell)
+{
+    std::cerr
+        << "Error: Couldn't identify our Guardian phrase\n";
+    return 1;
+}
+
+std::cout
+    << "Selected secret spell: \""
+    << guardianData.secretSpell
+    << "\""
+    << std::endl;
+
+return 0;
+    
 }   
 
 
@@ -416,17 +574,44 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         exit( 1 );
     }
 
+    int evilRecvSockfd;
+    if( ( evilRecvSockfd = socket( AF_INET, SOCK_DGRAM, 0 ) ) < 0 )
+    {
+        perror( "Error: Couldn't create socket for evil port" );
+        close( rawSockfd );
+        exit( 1 );
+    }
+
+    if( setSocketTimeout( TIMEOUT_MS, evilRecvSockfd ) < 0 )
+    {
+        perror( "Error: Couldn't set socket timeout" );
+        close( rawSockfd );
+        close( evilRecvSockfd );
+        exit( 1 );
+    }
+   
+   
+
     destaddr.sin_port = htons( evilBitData.evilPort );
-    if( connect( sockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
+    if( connect( evilRecvSockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
     {
         perror("Error: Failed to establish connection with receiver" );
+        close( rawSockfd );
+        close( evilRecvSockfd );
         return 1;
     }
 
+  
 
-    struct sockaddr_in local;
-    socklen_t len = sizeof(local);
-    getsockname(sockfd, (struct sockaddr*)&local, &len);
+    struct sockaddr_in local = {};
+    socklen_t localLen = sizeof( local );
+    if( getsockname( evilRecvSockfd, reinterpret_cast< struct sockaddr* >( &local ), &localLen ) < 0 )
+    {
+        perror( "Error: Failed to get local address" );
+        close( rawSockfd );
+        close( evilRecvSockfd );
+        return 1;
+    }
 
 
     evilBitData.ipv4Hdr = 
@@ -552,11 +737,12 @@ ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
     }
 
     char buffer[2048];
-    ssize_t bytesReceived = recv( sockfd, buffer, sizeof( buffer ) - 1 , 0 );
+    ssize_t bytesReceived = recv( evilRecvSockfd, buffer, sizeof( buffer ) - 1 , 0 );
 
     if( bytesReceived < 0 )
     {
         perror( "Error: No response from Evil port" );
+        close( evilRecvSockfd );
         close( rawSockfd );
         return 1; 
     }
@@ -576,11 +762,215 @@ ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
     evilBitData.HiddenPort = std::stoi( replyText.substr( colonPos + 1 ) );
 
     std::cout << "Hidden port is: " << evilBitData.HiddenPort << std::endl;
-
+    close( evilRecvSockfd );
     close( rawSockfd );
     return 0;
 }
 
+
+int solveDragonPort(
+    struct sockaddr_in& destaddr,
+    const int dragonPort,
+    const SecretData& secretData,
+    const EvilBitData& evilBitData,
+    std::vector<int>& knockSequence)
+{
+    int dragonSockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (dragonSockfd < 0)
+    {
+        perror("Error: Couldn't create D.R.A.G.O.N. socket");
+        return 1;
+    }
+
+    if (setSocketTimeout(TIMEOUT_MS, dragonSockfd) < 0)
+    {
+        perror("Error: Couldn't set Dragon timeout");
+        close(dragonSockfd);
+        return 1;
+    }
+
+    destaddr.sin_port = htons(dragonPort);
+
+    if (connect(
+            dragonSockfd,
+            reinterpret_cast<struct sockaddr*>(&destaddr),
+            sizeof(destaddr)) < 0)
+    {
+        perror("Error: Failed to connect to D.R.A.G.O.N.");
+        close(dragonSockfd);
+        return 1;
+    }
+
+    std::string message =
+        std::to_string(secretData.hiddenPort)
+        + ","
+        + std::to_string(evilBitData.HiddenPort);
+
+    std::cout << "Sending to D.R.A.G.O.N. "
+              << message << std::endl;
+
+    char buffer[2048];
+
+    int bytesReceived =
+        sendToPort(
+            dragonSockfd,
+            message,
+            buffer,
+            sizeof(buffer) - 1
+        );
+
+    if (bytesReceived <= 0)
+    {
+        std::cerr << "Error: No reply from D.R.A.G.O.N.\n";
+        close(dragonSockfd);
+        return 1;
+    }
+
+    std::string dragonResponse(buffer, bytesReceived);
+
+    std::cout << "D.R.A.G.O.N. response:\n"
+              << dragonResponse
+              << std::endl;
+
+    size_t start = 0;
+    while (start < dragonResponse.length())
+{
+    size_t comma = dragonResponse.find(',', start);
+
+    std::string portText;
+
+    if (comma == std::string::npos)
+    {
+        portText = dragonResponse.substr(start);
+    }
+    else
+    {
+        portText =
+            dragonResponse.substr(start, comma - start);
+    }
+
+    knockSequence.push_back(std::stoi(portText));
+
+    if (comma == std::string::npos)
+        break;
+
+    start = comma + 1;
+}
+    
+
+    
+    close(dragonSockfd);
+    return 0;
+}
+
+
+int portKnock(
+    struct sockaddr_in& destaddr,
+    const std::vector<int>& knockSequence,
+    const Signature& signature,
+    const std::string& secretSpell)
+{
+    int knockSockfd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (knockSockfd < 0)
+    {
+        perror("Error: Couldn't create knock socket");
+        return 1;
+    }
+
+    if (setSocketTimeout(TIMEOUT_MS, knockSockfd) < 0)
+    {
+        perror("Error: Couldn't set knock socket timeout");
+        close(knockSockfd);
+        return 1;
+    }
+
+    // Build:
+    // [group ID][4-byte sigil][secret phrase]
+
+    std::string knockMessage;
+
+    knockMessage.resize(1 + sizeof(uint32_t));
+
+    knockMessage[0] =
+        static_cast<char>(signature.groupId);
+
+    uint32_t sigilNetOrder =
+        htonl(signature.secretSigil);
+
+    memcpy(
+        &knockMessage[1],
+        &sigilNetOrder,
+        sizeof(sigilNetOrder)
+    );
+
+    // IMPORTANT:
+    // append exact phrase, no terminating zero
+    knockMessage.append(secretSpell);
+
+    for (size_t i = 0; i < knockSequence.size(); i++)
+    {
+        int port = knockSequence[i];
+
+        destaddr.sin_port = htons(port);
+
+        if (connect(
+                knockSockfd,
+                reinterpret_cast<struct sockaddr*>(&destaddr),
+                sizeof(destaddr)) < 0)
+        {
+            perror("Error: Couldn't connect for knock");
+            close(knockSockfd);
+            return 1;
+        }
+
+        std::cout << "Knocking on port "
+                  << port
+                  << "..."
+                  << std::endl;
+
+        ssize_t sent = send(
+            knockSockfd,
+            knockMessage.data(),
+            knockMessage.size(),
+            0
+        );
+
+        if (sent < 0)
+        {
+            perror("Error: Couldn't send knock");
+            close(knockSockfd);
+            return 1;
+        }
+
+        char buffer[2048];
+
+        ssize_t received = recv(
+            knockSockfd,
+            buffer,
+            sizeof(buffer) - 1,
+            0
+        );
+
+        if (received < 0)
+        {
+            perror("Error: No response to knock");
+            close(knockSockfd);
+            return 1;
+        }
+
+        buffer[received] = '\0';
+
+        std::cout << "Response: "
+                  << buffer
+                  << std::endl;
+    }
+
+    close(knockSockfd);
+
+    return 0;
+}
 /*
 The Main function reads the IP Address and port range from
  the command line arguments, it creates the UDP socket and sets 
@@ -643,12 +1033,12 @@ int main( int argc, char* argv[] )
     EvilBitData evilBitData = {};
 
     // key-value: bytes received - port
-    std::map< int, int > portMap = {
-        { 614, -1 }, // dragon
-        { 184, -1 }, // evil port
-        { 404, -1 }, // guardian
-        { 1107, -1 } // secret
-    };
+    std::map<std::string, int> portMap = {
+    {"D.R.A.G.O.N", -1},
+    {"evil port", -1},
+    {"guardian", -1},
+    {"S.E.C.R.E.T.", -1}
+};
 
     // send a light-weight packet to each port and map their response to a key-value
     // for later use
@@ -674,15 +1064,14 @@ int main( int argc, char* argv[] )
 
         buffer[ bytesReceived ] = '\0';
 
-        if( mapToPort( bytesReceived, port, portMap) != 0 )
-        {
+        if (mapToPort(buffer, bytesReceived, port, portMap) != 0)        {
             std::cerr << "Error: Couln't map to port: " << port << std::endl;
             close( sockfd );
             exit( 1 );
         }
         
         // check if current port is guardian port
-        if( port == portMap.at( 404 ) )
+        if( port == portMap.at( "guardian" ) )
         {
             // copy the raw binary structure at the front of response
             memcpy(&guardianData.responseHdr, buffer, sizeof( guardianData.responseHdr ) );
@@ -691,7 +1080,7 @@ int main( int argc, char* argv[] )
         }
     }
 
-    secretData.secretPort = portMap.at( 1107 );
+    secretData.secretPort = portMap.at( "S.E.C.R.E.T.");
     if( solveSecretPort( sockfd, destaddr, secretData) != 0 )
     {
         std::cerr << "Error: Secret Port couldn't be solved" << std::endl;
@@ -700,7 +1089,7 @@ int main( int argc, char* argv[] )
     }
 
     guardianData.signature = secretData.signature;
-    guardianData.guardianPort = portMap.at( 404 );
+    guardianData.guardianPort = portMap.at("guardian");
     if( solveGuardianPort( sockfd, destaddr, guardianData) != 0 )
     {
         std::cerr << "Error: Guardian Port couldn't be solved" << std::endl;
@@ -708,7 +1097,7 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    evilBitData.evilPort = portMap.at( 184 );
+    evilBitData.evilPort = portMap.at( "evil port" );
     evilBitData.signature = secretData.signature;
     if( solveEvilPort( sockfd, destaddr, evilBitData ) != 0 )
     {
@@ -717,7 +1106,31 @@ int main( int argc, char* argv[] )
         exit( 1 );
     } 
 
+    // Dragon
 
+    int dragonPort = portMap.at( "D.R.A.G.O.N" );
+    std:: vector<int> knockSequence;
+    if( solveDragonPort( destaddr, dragonPort, secretData, evilBitData, knockSequence ) != 0 )
+    {
+        std::cerr << "Error: Dragon Port couldn't be solved" << std::endl;
+        close( sockfd );
+        exit( 1 );
+    }
+
+    std::cout << "Secret spell: "
+          << guardianData.secretSpell
+          << std::endl;
+
+    if (portKnock(
+            destaddr,
+            knockSequence,
+            secretData.signature,
+            guardianData.secretSpell) != 0)
+    {
+        std::cerr << "Error: Port knocking failed\n";
+        close(sockfd);
+        return 1;
+    }
     close( sockfd );
 
     return 0;
