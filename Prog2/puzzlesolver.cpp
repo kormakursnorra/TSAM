@@ -621,7 +621,6 @@ to the evil port first, the operating system picks a local address and port for 
 The raw packet uses those as its source, so the evil ports reply arrives
 on the normal socket. The reply ends with the hidden port number.
 inputs:
-sockfd: not used.
 destaddr: server address; its port is changed to the evil port.
 evilBitData: must contain the evil port and the signature. 
              Output parameter: the IPv4 and UDP headers that were sent and the hidden port are written into it
@@ -629,7 +628,7 @@ Return:
 0 if the hidden port was found
 1 if an error occurs. The program exits if a socket can't be created or configured
 */
-int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& evilBitData )
+int solveEvilPort( struct sockaddr_in& destaddr, EvilBitData& evilBitData )
 {
     const size_t payloadLen = 5;
     const size_t udpLen = sizeof(struct udphdr ) + payloadLen;
@@ -685,14 +684,23 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         return 1;
     }
 
+    
+    #ifdef __APPLE__    // Makes ipLen and ipOff host byte order on macOS
+        const uint16_t ipLen = static_cast< uint16_t >( hdrLen );
+        const uint16_t ipOff = IP_RF;
+    #else   // Makes ipLen and ipOff network byte order on Linux
+        const uint16_t ipLen = htons(static_cast< uint16_t >( hdrLen ) );
+        const uint16_t ipOff = htons( IP_RF );
+    #endif
+
     evilBitData.ipv4Hdr = 
     {
         5,
         IPVERSION,
         0,
-        static_cast< uint16_t >( hdrLen ),
+        ipLen,
         0,
-        IP_RF,
+        ipOff,     // evil bit
         64,
         IPPROTO_UDP,
         0,
@@ -1165,7 +1173,7 @@ int main( int argc, char* argv[] )
 
     evilBitData.evilPort = portMap.at( "evil port" );
     evilBitData.signature = secretData.signature;
-    if( solveEvilPort( sockfd, destaddr, evilBitData ) != 0 )
+    if( solveEvilPort( destaddr, evilBitData ) != 0 )
     {
         std::cerr << "Error: Evil Port couldn't be solved" << std::endl;
         close( sockfd );
