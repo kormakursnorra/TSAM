@@ -205,7 +205,14 @@ int sendToPort( const int sockfd, std::string data, char* buff, size_t buffSize 
 /* 
 constructMessage build the initial S.E.C.R.E.T. handshake message:
 the literal prefix, the group members and a freshly generated 
-32-bit random number appended as four raw bytes in network.
+32-bit random number appended as four raw bytes in network byte order.
+inputs:
+secretNumber: output parameter; filled with the newly generated random number,
+              so the caller can reuse it later (to verify the challenge reply for example).
+secretMessage: output parameter; filled with the fully assembled message ready to send.
+userNames: group member usernames to embed in the message
+Return:
+0 always
 */
 int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const std::string &userNames)
 {
@@ -227,6 +234,20 @@ int constructMessage( uint32_t &secretNumber, std::string &secretMessage, const 
 }
 
 
+/*
+buildIpv6Buffer assembles the bytes the UDP checksum is calculated over for
+an IPv6 packet: the IPv6 pseudo header, followed by the UDP header
+(with its checksum field set to zero) and the payload. The result is
+padded to an even length so it can be summed in 16-bit words.
+inputs:
+buff: output parameter; the assembled bytes are appended to the end of it
+iphdr: IPv6 header to take the source and destination addresses from.
+udphdr: UDP header to include (passed as a copy, so the caller's checksum field is not changed)
+payload: pointer to the payload bytes.
+payloadLen: number of bytes in teh payload
+Return:
+none, the result is written into buff
+*/
 void buildIpv6Buffer( std::vector< uint8_t >& buff, const struct ip6_hdr& iphdr, struct udphdr udphdr, 
             const char* payload, size_t payloadLen )
 {
@@ -253,28 +274,39 @@ void buildIpv6Buffer( std::vector< uint8_t >& buff, const struct ip6_hdr& iphdr,
     }
 }
 
-void buildIpv4Buffer( std::vector< uint8_t >& buff, const struct ip& ipv4hdr )
-{
-    const uint8_t* src = reinterpret_cast< const uint8_t* >( &ipv4hdr.ip_src );
-    const uint8_t* dst = reinterpret_cast< const uint8_t* >( &ipv4hdr.ip_dst );
+// void buildIpv4Buffer( std::vector< uint8_t >& buff, const struct ip& ipv4hdr )
+// {
+//     const uint8_t* src = reinterpret_cast< const uint8_t* >( &ipv4hdr.ip_src );
+//     const uint8_t* dst = reinterpret_cast< const uint8_t* >( &ipv4hdr.ip_dst );
 
-    buff.insert( buff.end(), src, src + 4 );
-    buff.insert( buff.end(), dst, dst + 4 );
+//     buff.insert( buff.end(), src, src + 4 );
+//     buff.insert( buff.end(), dst, dst + 4 );
 
-    uint32_t upperLen = htonl( static_cast< uint32_t >( sizeof( udphdr ) ) );
-    const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &upperLen );
-    buff.insert( buff.end(), ulenBytes, ulenBytes + 4 );
+//     uint32_t upperLen = htonl( static_cast< uint32_t >( sizeof( udphdr ) ) );
+//     const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &upperLen );
+//     buff.insert( buff.end(), ulenBytes, ulenBytes + 4 );
 
-    buff.push_back( 0 ); buff.push_back( 0 ); buff.push_back( 0 );
-    buff.push_back( IPPROTO_UDP );
+//     buff.push_back( 0 ); buff.push_back( 0 ); buff.push_back( 0 );
+//     buff.push_back( IPPROTO_UDP );
 
-    if( buff.size() % 2 != 0 ) 
-    {
-        buff.push_back( 0 ); // pad to even length
-    }
-}
+//     if( buff.size() % 2 != 0 ) 
+//     {
+//         buff.push_back( 0 ); // pad to even length
+//     }
+// }
 
 
+/*
+checksum calculates the Internet checksum (RFC 1071) used in UDP and IPv4
+headers. The data is added up in 16 bit words using ones complement  addition
+and the final sum is inverted. A result of 0 is replaced with 0xFFFF, since a
+zero UDP checksum means "no checksum"
+inputs:
+buff: the bytes to calculate the checksum over. Must have an even lenght
+      (the buffer builders pad it with a zero byte when needed)
+Return:
+the 16-bit checksum in network byte order, ready for a header
+*/
 int checksum( std::vector< uint8_t > buff )
 {
     uint32_t sum = 0;
@@ -297,6 +329,21 @@ int checksum( std::vector< uint8_t > buff )
     return htons( result );
 }
 
+/*
+solveSecretPort sends the handshake message(prefix, usernames and
+a random 32-bit secret number) and gets back the group ID and a 32-bit challenge number.
+The secret sigil is calculated by XOR-ing the secret number with the challenge
+and is sent back together with the group ID. The port then replies with a message
+ending in the hidden port number.
+inputs:
+sockfd: UDP socket to communicate on; gets connected to the Secret port
+destaddr: server address; it's port is changed to the secret address
+secretData: must contain the secret port number (secretPort). Output parameter;
+            the group ID, secret sigil and hidden port are written into it.
+Return:
+0 if the hidden port was found
+1 in case of error
+*/
 int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData& secretData )
 {
     uint32_t secretNumber;     // Randomly generated, 32-bit secret number  
@@ -364,7 +411,25 @@ int solveSecretPort( const int sockfd, struct sockaddr_in& destaddr, SecretData&
     return 0;
 }
 
-
+/*
+solveGuardianPort solves the Guardian ports challenge. The Guardians
+greeting starts with a raw IPv6 header and UDP header that describe a 
+"conversation" between two addresses and ports. This function replies inside
+that conversation: it builds an IPv6 packet with the addresses and
+ports swapped, a correct UDP checksum and the group signature as payload,
+and sends the whole packet as the payload of a normal UDP message.
+The Guardian then sends back several candidate phrases and the one whose headers
+match the original conversation is the secret spell
+inputs:
+sockfd: UDP socket to communicate on; it gets connected to the Guardian Port
+destaddr: server address; its port is changed to the Guardian port.
+guardianData: must contain the Guardian port, the signature, and the IPv6 and
+              UDP headers from the Guardians greeting.
+              Output parameter: the secret spell is written into it
+Return:
+0 if the secret spell was found
+1 if an error occurs
+*/
 int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianData& guardianData )
 {
     const size_t payloadLen = 1 + sizeof( uint32_t );              
@@ -408,151 +473,162 @@ int solveGuardianPort( const int sockfd, struct sockaddr_in& destaddr, GuardianD
         perror("Error: Failed to establish connection with receiver" );
         return 1;
     }
-    ssize_t sent = send(
-    sockfd,
-    newMessage.data(),
-    newMessage.size(),
-    0
-);
+    ssize_t sent = send( sockfd, newMessage.data(), newMessage.size(), 0 );
 
-if (sent < 0)
-{
-    perror("Error: Failed to send Guardian response");
-    return 1;
-}
-
-bool foundCorrectSpell = false;
-
-while (true)
-{
-    char buffer[2048];
-
-    ssize_t bytesReceived =
-        recv(sockfd, buffer, sizeof(buffer), 0);
-
-    if (bytesReceived < 0)
+    if (sent < 0)
     {
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
-        {
-            break; // no more Guardian packets
-        }
-
-        perror("Error receiving Guardian response");
+        perror("Error: Failed to send Guardian response");
         return 1;
     }
 
-    const size_t headerSize =
-        sizeof(struct ip6_hdr) +
-        sizeof(struct udphdr);
+    bool foundCorrectSpell = false;
 
-    if (bytesReceived <
-        static_cast<ssize_t>(headerSize))
+    while (true)
     {
-        continue;
-    }
+        char buffer[2048];
 
-    // Read the inner IPv6 + UDP headers
-    struct ip6_hdr responseIp;
-    struct udphdr responseUdp;
+        ssize_t bytesReceived =
+            recv(sockfd, buffer, sizeof(buffer), 0);
 
-    memcpy(
-        &responseIp,
-        buffer,
-        sizeof(responseIp)
-    );
+        if (bytesReceived < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                break; // no more Guardian packets
+            }
 
-    memcpy(
-        &responseUdp,
-        buffer + sizeof(responseIp),
-        sizeof(responseUdp)
-    );
+            perror("Error receiving Guardian response");
+            return 1;
+        }
 
-    // Does this packet belong to the conversation
-    // that we originally had with the Guardian?
-    bool correctConversation =
-        memcmp(
-            &responseIp.ip6_src,
-            &guardianData.responseHdr.ip6_src,
-            sizeof(struct in6_addr)
-        ) == 0
-        &&
-        memcmp(
-            &responseIp.ip6_dst,
-            &guardianData.responseHdr.ip6_dst,
-            sizeof(struct in6_addr)
-        ) == 0
-        &&
-        responseUdp.uh_sport ==
-            guardianData.responseUdpHdr.uh_sport
-        &&
-        responseUdp.uh_dport ==
-            guardianData.responseUdpHdr.uh_dport;
+        const size_t headerSize =
+            sizeof(struct ip6_hdr) +
+            sizeof(struct udphdr);
 
-    // Text begins after IPv6 + UDP headers
-    std::string responseText(
-        buffer + headerSize,
-        bytesReceived - headerSize
-    );
+        if (bytesReceived <
+            static_cast<ssize_t>(headerSize))
+        {
+            continue;
+        }
 
-    size_t firstQuote =
-        responseText.find('"');
+        // Read the inner IPv6 + UDP headers
+        struct ip6_hdr responseIp;
+        struct udphdr responseUdp;
 
-    size_t secondQuote =
-        responseText.find(
-            '"',
-            firstQuote == std::string::npos
-                ? 0
-                : firstQuote + 1
+        memcpy(
+            &responseIp,
+            buffer,
+            sizeof(responseIp)
         );
 
-    if (firstQuote == std::string::npos ||
-        secondQuote == std::string::npos)
-    {
-        continue;
+        memcpy(
+            &responseUdp,
+            buffer + sizeof(responseIp),
+            sizeof(responseUdp)
+        );
+
+        // Does this packet belong to the conversation
+        // that we originally had with the Guardian?
+        bool correctConversation =
+            memcmp(
+                &responseIp.ip6_src,
+                &guardianData.responseHdr.ip6_src,
+                sizeof(struct in6_addr)
+            ) == 0
+            &&
+            memcmp(
+                &responseIp.ip6_dst,
+                &guardianData.responseHdr.ip6_dst,
+                sizeof(struct in6_addr)
+            ) == 0
+            &&
+            responseUdp.uh_sport ==
+                guardianData.responseUdpHdr.uh_sport
+            &&
+            responseUdp.uh_dport ==
+                guardianData.responseUdpHdr.uh_dport;
+
+        // Text begins after IPv6 + UDP headers
+        std::string responseText(
+            buffer + headerSize,
+            bytesReceived - headerSize
+        );
+
+        size_t firstQuote =
+            responseText.find('"');
+
+        size_t secondQuote =
+            responseText.find(
+                '"',
+                firstQuote == std::string::npos
+                    ? 0
+                    : firstQuote + 1
+            );
+
+        if (firstQuote == std::string::npos ||
+            secondQuote == std::string::npos)
+        {
+            continue;
+        }
+
+        std::string candidateSpell =
+            responseText.substr(
+                firstQuote + 1,
+                secondQuote - firstQuote - 1
+            );
+
+        std::cout
+            << "Guardian phrase candidate: \""
+            << candidateSpell
+            << "\"";
+
+        if (correctConversation)
+        {
+            std::cout << "  <-- matches our conversation";
+
+            guardianData.secretSpell =
+                candidateSpell;
+
+            foundCorrectSpell = true;
+        }
+
+        std::cout << std::endl;
     }
 
-    std::string candidateSpell =
-        responseText.substr(
-            firstQuote + 1,
-            secondQuote - firstQuote - 1
-        );
+    if (!foundCorrectSpell)
+    {
+        std::cerr
+            << "Error: Couldn't identify our Guardian phrase\n";
+        return 1;
+    }
 
     std::cout
-        << "Guardian phrase candidate: \""
-        << candidateSpell
-        << "\"";
+        << "Selected secret spell: \""
+        << guardianData.secretSpell
+        << "\""
+        << std::endl;
 
-    if (correctConversation)
-    {
-        std::cout << "  <-- matches our conversation";
-
-        guardianData.secretSpell =
-            candidateSpell;
-
-        foundCorrectSpell = true;
-    }
-
-    std::cout << std::endl;
-}
-
-if (!foundCorrectSpell)
-{
-    std::cerr
-        << "Error: Couldn't identify our Guardian phrase\n";
-    return 1;
-}
-
-std::cout
-    << "Selected secret spell: \""
-    << guardianData.secretSpell
-    << "\""
-    << std::endl;
-
-return 0;
+    return 0;
     
 }   
 
 
+/*
+solveEvilPort solves the evil port's challenge. The evil port only accepts
+packets with the evil bit set. A normal socket can't set it so the IPv4 and UDP
+packet is built by hand and sent on a raw socket. A normal UDP socket is connected
+to the evil port first, the operating system picks a local address and port for it.
+The raw packet uses those as its source, so the evil ports reply arrives
+on the normal socket. The reply ends with the hidden port number.
+inputs:
+sockfd: not used.
+destaddr: server address; its port is changed to the evil port.
+evilBitData: must contain the evil port and the signature. 
+             Output parameter: the IPv4 and UDP headers that were sent and the hidden port are written into it
+Return:
+0 if the hidden port was found
+1 if an error occurs. The program exits if a socket can't be created or configured
+*/
 int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& evilBitData )
 {
     const size_t payloadLen = 5;
@@ -589,8 +665,6 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         close( evilRecvSockfd );
         exit( 1 );
     }
-   
-   
 
     destaddr.sin_port = htons( evilBitData.evilPort );
     if( connect( evilRecvSockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
@@ -600,8 +674,6 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         close( evilRecvSockfd );
         return 1;
     }
-
-  
 
     struct sockaddr_in local = {};
     socklen_t localLen = sizeof( local );
@@ -613,15 +685,11 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         return 1;
     }
 
-
     evilBitData.ipv4Hdr = 
     {
         5,
         IPVERSION,
         0,
-        //htons( hdrLen ),
-        //htons( 0 ),
-        //htons( IP_RF ), // evil bit hehehe
         static_cast< uint16_t >( hdrLen ),
         0,
         IP_RF,
@@ -633,7 +701,6 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
     };
 
     evilBitData.udpHdr.uh_sport = local.sin_port;
-
     evilBitData.udpHdr.uh_dport = htons( evilBitData.evilPort );
     evilBitData.udpHdr.uh_ulen = htons( static_cast< uint16_t >( udpLen ) );
     evilBitData.udpHdr.uh_sum = 0;  
@@ -646,37 +713,27 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
 
     memcpy( &payload[1], &sigilNetOrder, sizeof( sigilNetOrder ) );
 
-
-
     std::vector< uint8_t > udpBuff;
 
-    // Source IPv4 
     const uint8_t* src = reinterpret_cast< const uint8_t* >( &evilBitData.ipv4Hdr.ip_src );
     udpBuff.insert( udpBuff.end(), src, src + 4 );
 
-    // Destination IPv4
     const uint8_t* dst = reinterpret_cast< const uint8_t* >( &evilBitData.ipv4Hdr.ip_dst );
     udpBuff.insert( udpBuff.end(), dst, dst + 4 );
 
-    // Zero 
     udpBuff.push_back( 0 );
 
-    // Protocol
     udpBuff.push_back( IPPROTO_UDP );
 
-    // UDP length
     uint16_t udpLenNet = htons( static_cast< uint16_t >( udpLen ) );
     const uint8_t* ulenBytes = reinterpret_cast< const uint8_t* >( &udpLenNet );
     udpBuff.insert( udpBuff.end(), ulenBytes, ulenBytes + 2 );
 
-    // UDP header
     const uint8_t* udpBytes = reinterpret_cast< const uint8_t* >( &evilBitData.udpHdr );
     udpBuff.insert( udpBuff.end(), udpBytes, udpBytes + sizeof( evilBitData.udpHdr ) );
 
-    // Payload
     udpBuff.insert( udpBuff.end(), reinterpret_cast< const uint8_t* >( payload ), reinterpret_cast< const uint8_t* >( payload ) + payloadLen );
 
-    //checksum
     if ( udpBuff.size() % 2 != 0 )
     {
         udpBuff.push_back( 0 );
@@ -684,21 +741,11 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
 
     evilBitData.udpHdr.uh_sum = checksum( udpBuff );
 
-
-
-    //////////////
-
     evilBitData.ipv4Hdr.ip_sum = 0;
     std::vector< uint8_t > ipBuff(sizeof(evilBitData.ipv4Hdr));
 
     memcpy( ipBuff.data(), &evilBitData.ipv4Hdr, sizeof( evilBitData.ipv4Hdr));
     evilBitData.ipv4Hdr.ip_sum = checksum( ipBuff );
-
-
-
-    ////////////
-
-
     
     destaddr.sin_port = htons( evilBitData.evilPort );
     if( connect( rawSockfd, reinterpret_cast< struct sockaddr* >( &destaddr ), sizeof( destaddr ) ) < 0 )
@@ -713,7 +760,7 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
         perror("Error: Failed to set socket option" );
         return 1;
     }
-////////
+
     std::string message;
     message.resize( hdrLen );
     size_t offset = 0;
@@ -725,10 +772,7 @@ int solveEvilPort( const int sockfd, struct sockaddr_in& destaddr, EvilBitData& 
     offset += sizeof( evilBitData.udpHdr );
     memcpy( &message[ offset ], &payload, payloadLen );
 
-//////
-    
-
-ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
+    ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
     if( sent < 0 )
     {
         perror( "Error: Failed to send evil packet\n" );
@@ -768,6 +812,20 @@ ssize_t sent = send( rawSockfd, message.data(), message.length(), 0 );
 }
 
 
+/*
+solveDragonPort sends the two hidden ports from secret port and evil port
+as text, seperated by a comma. The port replies with the knock sequence: a comma
+seperated list of port numbers, which is parsed into knockSequence.
+inputs:
+destaddr: server address; its port is changed to the Dragon port.
+dragonPort: the dragon port number
+secretData: contains the hidden port from secret port
+evilBitData: contains the hidden port from the evil port
+knockSequence: otputs parameter; the ports to knock on are added to it in order
+Return:
+0 if the knock sequence was received
+1 if an error occurs
+*/
 int solveDragonPort(
     struct sockaddr_in& destaddr,
     const int dragonPort,
@@ -835,36 +893,47 @@ int solveDragonPort(
 
     size_t start = 0;
     while (start < dragonResponse.length())
-{
-    size_t comma = dragonResponse.find(',', start);
-
-    std::string portText;
-
-    if (comma == std::string::npos)
     {
-        portText = dragonResponse.substr(start);
+        size_t comma = dragonResponse.find(',', start);
+
+        std::string portText;
+
+        if (comma == std::string::npos)
+        {
+            portText = dragonResponse.substr(start);
+        }
+        else
+        {
+            portText =
+                dragonResponse.substr(start, comma - start);
+        }
+
+        knockSequence.push_back(std::stoi(portText));
+
+        if (comma == std::string::npos)
+            break;
+
+        start = comma + 1;
     }
-    else
-    {
-        portText =
-            dragonResponse.substr(start, comma - start);
-    }
-
-    knockSequence.push_back(std::stoi(portText));
-
-    if (comma == std::string::npos)
-        break;
-
-    start = comma + 1;
-}
-    
-
     
     close(dragonSockfd);
     return 0;
 }
 
 
+/*
+portKnock performs the final port knock. It sends the knock
+message (group ID, secret sigil and the secret spell) to each port
+in the knock sequence, in order and prints each ports reply
+inputs:
+destaddr: server address; its port is changed to each knock port in turn
+knockSequence: the ports to knock on, in order (from dragon port)
+signature: the group Id and secret sigil (from secret port)
+secretSpell: the secret phrase (from the Guardian port)
+Return:
+0 if every port in the sequence replied
+1 if an error occurs
+*/
 int portKnock(
     struct sockaddr_in& destaddr,
     const std::vector<int>& knockSequence,
@@ -886,9 +955,7 @@ int portKnock(
         return 1;
     }
 
-    // Build:
-    // [group ID][4-byte sigil][secret phrase]
-
+    // Build: [group ID][4-byte sigil][secret phrase]
     std::string knockMessage;
 
     knockMessage.resize(1 + sizeof(uint32_t));
@@ -905,8 +972,6 @@ int portKnock(
         sizeof(sigilNetOrder)
     );
 
-    // IMPORTANT:
-    // append exact phrase, no terminating zero
     knockMessage.append(secretSpell);
 
     for (size_t i = 0; i < knockSequence.size(); i++)
@@ -971,16 +1036,19 @@ int portKnock(
 
     return 0;
 }
+
+
 /*
 The Main function reads the IP Address and port range from
- the command line arguments, it creates the UDP socket and sets 
- the socket timeout, and scan each port in the specified range.
+the command line arguments. It identifies which puzzle each port is,
+the solves them in order and performs the final port knock.
+
 inputs:
 argc : number of command line arguments.
-argv: command line arguments containing the IP Address, 
-lowest port and highest port
- Return: 
- 0 when the program finishes successfully.
+argv: command line arguments containing the IP Address, lowest port and highest port
+Return: 
+0 when the program finishes successfully.
+1 if any step fails
 */
 int main( int argc, char* argv[] )  
 {
@@ -997,7 +1065,6 @@ int main( int argc, char* argv[] )
         atoi( argv[4] ),
         atoi( argv[5] ) 
     };
-
 
     int sockfd; // UDP socket
     struct sockaddr_in destaddr = {}; // Server address 
@@ -1026,8 +1093,7 @@ int main( int argc, char* argv[] )
         exit( 1 );
     } 
 
-    // Declare the necessary data structures for solving ports.
-
+    // Declare the necessary data structures for solving ports. 
     SecretData secretData = {};
     GuardianData guardianData = {};
     EvilBitData evilBitData = {};
@@ -1038,7 +1104,7 @@ int main( int argc, char* argv[] )
     {"evil port", -1},
     {"guardian", -1},
     {"S.E.C.R.E.T.", -1}
-};
+    };
 
     // send a light-weight packet to each port and map their response to a key-value
     // for later use
@@ -1105,8 +1171,6 @@ int main( int argc, char* argv[] )
         close( sockfd );
         exit( 1 );
     } 
-
-    // Dragon
 
     int dragonPort = portMap.at( "D.R.A.G.O.N" );
     std:: vector<int> knockSequence;
