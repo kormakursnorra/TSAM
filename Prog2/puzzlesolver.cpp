@@ -82,16 +82,18 @@ int setSocketTimeout( int ms, const int sockfd )
 
 
 /*
-Maps the port numbers to the expected byte count 
-of their respective greetings. A matching key gets
-the value of the port number that produced it.
+Identifies which puzzle a port is by searching its greeting for
+known text, and records the port number under that puzzles name.
+The guardian is checked before S.E.C.R.E.T. since its greeting
+also mentions S.E.C.R.E.T.
 inputs:
-bytesReceived: The number of bytes the port greeted with
-port: The UDP port number that sent the reply
-portMap: map of expected response size -> port number
+buff: the greeting the port replied with
+bytesReceived: The number of bytes in the greeting
+port: The UDP port number that sent the greeting
+portMap: map of puzzle name -> port number
 return:
-0 if the byte count matched a port number and the port was recorded
-1 if no key matched the byte count
+0 if the greeting matched a puzzle and the port was recorded
+1 if the greeting didn't match any puzzle
 */
 int mapToPort(
     const char* buff,
@@ -1049,11 +1051,10 @@ int portKnock(
 /*
 The Main function reads the IP Address and port range from
 the command line arguments. It identifies which puzzle each port is,
-the solves them in order and performs the final port knock.
-
+then solves them in order and performs the final port knock.
 inputs:
 argc : number of command line arguments.
-argv: command line arguments containing the IP Address, lowest port and highest port
+argv: command line arguments containing the IP Address and four ports
 Return: 
 0 when the program finishes successfully.
 1 if any step fails
@@ -1106,7 +1107,7 @@ int main( int argc, char* argv[] )
     GuardianData guardianData = {};
     EvilBitData evilBitData = {};
 
-    // key-value: bytes received - port
+    // key-value: puzzle name - port number
     std::map<std::string, int> portMap = {
     {"D.R.A.G.O.N", -1},
     {"evil port", -1},
