@@ -1,5 +1,7 @@
 #pragma once
 
+#include "message_protocol.h"
+
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -13,16 +15,20 @@
 #include <stdio.h>
 #include <errno.h>
 #include <netdb.h>
+#include <string>
 #include <vector>
+#include <thread>
 #include <poll.h>
+#include <map>
 
 #define BACKLOG  5  
 
 class Client
 {
-  public:
-    int sock;         // socket of client connection
-    std::string name; // Limit length of name of client's user
+public:
+    int sock;                        // socket of client connection
+    std::string name;                // Limit length of name of client's user
+    std::vector<Message* > messages; // The clients messages
 
     Client( int socket ) : sock( socket ){} 
 
@@ -30,7 +36,7 @@ class Client
 };
 
 /* 
-Opens a new socket for a specified port.
+Opens a new socket for a specified port. 
 Returns -1 if at any point it fails to do so.  
 */ 
 int open_socket( int portnum );
