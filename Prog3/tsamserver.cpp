@@ -1,21 +1,23 @@
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <sys/types.h>
-#include <arpa/inet.h>
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <errno.h>
-#include <netdb.h>
+#include "tsamserver.h"
 
 
 int main( int argc, char* argv[] )
 {
-    if( argc != 3 )
+    // Process command line argument/s
+    
+    if( argc != 2 )
     {
-        
-    } 
+        perror("Missing argument <ip port>\n");
+        exit(1);   
+    }
+    
+    int listenPort = 0;
+    if( ( listenPort = atoi( argv[1] ) ) == 0 )
+    {
+        perror("Bad argument error <ip port>\n");
+        exit(1);
+    }
+
+    // Create listen socket
+    int listenSock = open_socket( listenPort );
 }
