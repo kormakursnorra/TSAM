@@ -1,19 +1,19 @@
 CXX		 := g++
 CXXFLAGS := --std=c++11 -Wall -Wextra
-TARGET 	 := tsamserver
+TARGETS  := tsamclient tsamserver
 SOURCES  := $(shell find Prog3 -name '*.cpp)
 OBJECTS	 := $(SOURCE:.cpp=.o)
 
-all: $(TARGET)
+all: $(TARGETS)
 
-$(TARGET): $(OBJECTS)
+$(TARGETS): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 %.o : %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJECTS) $(TARGETS)
 
 .SILENT: clean
 
