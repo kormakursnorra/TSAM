@@ -1,26 +1,169 @@
 #include "message_protocol.h"
-#include <sstream>
 
-MessageHandler::MessageHandler(){}
+#include <optional>
+#include <string_view>
+#include <sys/types.h>
+#include <iostream>
+#include <ostream>
+#include <cstdint>
+#include <cstdio>
 
-int MessageHandler::parseMessage( char* buffer )
+inline constexpr std::string_view nextField( const std::string_view &command, size_t& startPos )
 {
-    std::vector<std::string> tokens;
-    std::string token;
-
-    // Split command from client into tokens for parsing
-    std::stringstream stream( buffer );
-
-    while( stream >> token )
-    {
-        tokens.push_back( token );
+    if ( startPos > command.size() ) {
+        return {}; // ran out of fields
     }
-
-    // Handle the case when the message is > 5000 bytes
-    if( atoi( tokens.back().c_str() ) != ETX )  
+    size_t comma = command.find(',', startPos);
+    std::string_view field = command.substr(startPos, comma - startPos);
+    
+    if( comma == std::string_view::npos )
     {
+        startPos = command.size() + 1;
+    }
+    else {
+        startPos = comma + 1;
+    }
+    
+    return field;
+}
+
+proto::MessageHandler::MessageHandler(){}
+
+int proto::MessageHandler::parseMessage( const std::string_view &buf, struct Frame& newFrame )
+{    
+    if( buf.empty() )
+    {
+        std::cerr << "Received empty buffer" << std::endl;
         return 1;
     }
 
-    return 1;
+    if( buf[0] != SOH )
+    {
+        std::cerr << "First character NOT <SOH> (0x01)" << std::endl;
+        return 1;
+    }
+    
+    if( buf.size() < HEADER_SIZE )
+    {
+        std::cerr << "Incomplete message (buf < HEADER_SIZE)" << std::endl;
+        return 1;
+    }
+    
+    if ( buf[3] != STX ) 
+    {
+        std::cerr << "Missing character <STX> (0x02)" << std::endl;
+        return 1;
+    }
+    
+    // Extract <length> field. Since it's in big-endian we need to perform bitwise
+    // left-shifting to move the first byte to the right position 
+    size_t firstByte  = size_t( static_cast< uint8_t >( buf[1] ) << 8 );
+    size_t secondByte = size_t( static_cast< uint8_t >( buf[2] ) );
+    
+    size_t length = firstByte | secondByte;
+
+    if( length < MIN_FRAME || length > MAX_FRAME )
+    {
+        std::cerr << "Value of <length> not within MIN_FRAME or MAX_FRAME" << std::endl;
+        return 1;
+    }
+
+    if( buf.size() < length || length > buf.size() )
+    {
+        std::cerr << "Size of buffer not the same as <length>" << std::endl;
+        return 1;
+    }
+
+    if( buf[ length - 1 ] != ETX )
+    {
+        std::cerr << "Last character NOT <ETX> (0x03)" << std::endl;
+        return 1;
+    } 
+
+    // We need to check what kind of command is being sent.
+    auto command = buf.substr( buf[3], length - 1 );
+    Payload payload; 
+
+    if( resolveCommand( command, payload ) > 0 )
+    {
+        std::cerr << "Unable to resolve command" << std::endl;
+        return 1;
+    }
+
+    newFrame = Frame{ length, payload };
+
+    return 0;
+}
+
+int proto::MessageHandler::resolveCommand( const std::string_view &command, Payload &payload )
+{
+    
+    CommandType commandName; 
+    for( auto i = 0U; i < commandNames.size(); ++i )
+    {
+        if( command.find( commandNames[i], 0 ) != std::string_view::npos )
+        {
+            commandName = static_cast< CommandType >( i );
+        }
+    }
+
+    switch( commandName )
+    {
+        case proto::CommandType::SendMsg:
+        {
+            // Unpack command (<from>,<to>,<message>) 
+            size_t pos = commandNames[0].size() + 1;
+            auto sender    = nextField( command, pos );
+            auto recipient = nextField( command, pos );
+            if( pos > command.size() ) 
+            { 
+                break; 
+            }
+            auto body = command.substr( pos );
+            payload = proto::SendMsg{ 
+                std::string( sender ), 
+                std::string( recipient ), 
+                std::string( body ) };
+            break;   
+        }
+        case proto::CommandType::GetMsg:
+        {
+            size_t pos = commandNames[1].size() + 1;
+            if( pos > command.size() ) 
+            { 
+                break; 
+            }
+            payload = proto::GetMsg{ std::string( nextField( command, pos ) ) };
+            break;
+        }
+        case proto::CommandType::StatusReq:
+        {
+            payload = proto::StatusReq{};
+            break;
+        }
+        default:
+        {
+            std::cerr << "No valid command name found in given <command>" << std::endl;
+            return 1;
+        }
+    }
+
+    return 0;
+    
+
+}
+
+int proto::MessageHandler::sendMessage()
+{
+
+}
+
+int proto::MessageHandler::getMessage()
+{
+    
+}
+
+int proto::MessageHandler::statusRequest()
+{
+    
 }

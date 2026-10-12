@@ -5,77 +5,89 @@
 #include <string>
 #include <array>
 
-/*
-Message delimeters. 
-    SOH (Start-of-header): 0x01
-    STX (Start-of-text): 0x02
-    ETX (End-of-text): 0x03
-*/
-enum MessageDelimiter { SOH = 0x01, STX = 0x02, ETX = 0x03 };
+namespace proto {
+    
+    constexpr size_t HEADER_SIZE = 4;     // Size of message header
+    constexpr size_t MIN_COMMAND = 10;    // STATUSREQ command
+    constexpr size_t MAX_COMMAND = 5000;  // Set capped size for commands (bytes)
+    
+    // Set minimum valid size for a single message (15 bytes)
+    constexpr size_t MIN_FRAME = HEADER_SIZE + MIN_COMMAND + 1; 
+    // Set capped size for a single message (5005 bytes)
+    constexpr size_t MAX_FRAME = HEADER_SIZE + MAX_COMMAND + 1; 
 
-enum class MessageCommand { SendMsg, GetMsg, StatusReq };
+    // Message delimeters.  
+    inline constexpr char SOH = 0x01; // start of header
+    inline constexpr char STX = 0x02; // start of text
+    inline constexpr char ETX = 0x03; // end of text
 
-inline constexpr std::array<std::string_view, 3> msgCommandNames = {
-    "SENDMSG", "GETMSG", "STATUSREQ"
-};
+    // Message command headers
+    inline constexpr std::array<std::string_view, 3> commandNames = {
+        "SENDMSG", "GETMSG", "STATUSREQ"
+    };
 
-constexpr std::string_view toString( MessageCommand c ) 
-{
-    return msgCommandNames[ static_cast< std::size_t >( c ) ];
-}
+    enum class CommandType { SendMsg, GetMsg, StatusReq };
 
-constexpr std::optional< MessageCommand > parseCommand( std::string_view s ) 
-{
-    for (std::size_t i = 0; i < msgCommandNames.size(); ++i)
+    struct SendMsg   { std::string sender; std::string recipient; std::string body; };
+    struct GetMsg    { std::string username; };
+    struct StatusReq {};
+
+    using Payload = std::variant< SendMsg, GetMsg, StatusReq >;
+
+    // constexpr std::string_view toString( MessageCommand c ) 
+    // {
+    //     return msgCommandNames[ static_cast< std::size_t >( c ) ];
+    // }
+
+    // constexpr std::optional< MessageCommand > parseCommand( std::string_view s ) 
+    // {
+    //     for( std::size_t i = 0; i < msgCommandNames.size(); ++i )
+    //     {
+    //         if ( msgCommandNames[i] == s )
+    //             return static_cast< MessageCommand >( i );
+    //     }
+    //     return std::nullopt;
+    // }
+    
+    // Message frame
+    struct Frame 
     {
-        if (msgCommandNames[i] == s)
-            return static_cast< MessageCommand >( i );
-    }
-    return std::nullopt;
-}
+        size_t frameSize;  // bytes to consume from the buffer
+        Payload payload;   // the <command> part, between STX and ETX
+    };
 
-struct SendMsg   { std::string sender; std::string recipient; std::string body; };
-struct GetMsg    { std::string username; };
-struct StatusReq {};
-
-using Content = std::variant< SendMsg, GetMsg, StatusReq >;
-
-struct Message
-{
-    int soh = SOH;
-    int length = -1;
-    int stx = SOH;
-    Content content;
-    int etx = ETX;
-    
-};
-
-/*
-This class provides functionality to parse and verify messages from clients. It processes
-raw, data packets into defined Message structs.
-*/
-class MessageHandler
-{
-public:
-
-    MessageHandler();     // Constructor
-
-    /* 
-    Parse and unpack buffer (data packet). If size of buffer > 5000 bytes, it may be discarded. 
+    /*
+    This class provides functionality to parse and verify messages from clients. It processes
+    the raw data packets into defined Frame structs.
     */
-    int parseMessage( char* buffer );
+    class MessageHandler
+    {
+    public:
+
+        MessageHandler();     // Constructor
+
+        /* 
+        Parse and unpack a given buffer (message) into a Frame struct to return. 
+        */
+        int parseMessage( const std::string_view &buf, struct Frame& newFrame );
     
-    int sendMessage( );
+    private:
+        int resolveCommand( const std::string_view &command, Payload &payload );
 
-    int getMessage( );
+        std::vector< std::string > splitFields( const std::string_view &command, size_t maxFields );
+        
+        int sendMessage( );
 
-    int statusRequest( );
+        int getMessage( );
 
-
-    
-    ~MessageHandler(){}                 // Default destructor for class
-    
-    
+        int statusRequest( );
 
 
+        
+        ~MessageHandler(){}                 // Default destructor for class
+        
+        
+
+
+    };
 };
