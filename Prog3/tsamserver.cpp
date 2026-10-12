@@ -1,5 +1,6 @@
 #include "tsamserver.h"
 #include <algorithm>
+#include <charconv>
 #include <iostream>
 #include <list>
 
@@ -114,7 +115,10 @@ int main( int argc, char* argv[] )
     int listenSock = -1;
     int clientSock = -1;
 
-    if( ( listenPort = atoi( argv[1] ) ) == 0 )
+    auto result = std::from_chars(
+                argv[1], argv[1] + sizeof( argv[1] ) - 1, listenPort );
+
+    if( result.ec != std::errc() )
     {
         perror( "Bad argument error <ip port>\n" );
         exit( 1 );
@@ -130,7 +134,7 @@ int main( int argc, char* argv[] )
 
     struct sockaddr_in client;
     socklen_t clientLen;
-    char buffer[5000];     
+    char buffer[proto::MAX_FRAME];     
 
     if( listen(listenSock, BACKLOG) < 0 )
     {

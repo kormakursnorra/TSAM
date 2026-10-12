@@ -28,7 +28,7 @@ class Client
 public:
     int sock;                        // socket of client connection
     std::string name;                // Limit length of name of client's user
-    std::vector<Message* > messages; // The clients messages
+    std::vector<proto::Frame* > messages; // The clients messages
 
     Client( int socket ) : sock( socket ){} 
 
