@@ -1,5 +1,5 @@
 CXX		 := g++
-CXXFLAGS := --std=c++11 -Wall -Wextra
+CXXFLAGS := --std=c++17 -Wall -Wextra
 TARGETS  := tsamclient tsamserver
 SOURCES  := $(shell find Prog3 -name '*.cpp)
 OBJECTS	 := $(SOURCE:.cpp=.o)

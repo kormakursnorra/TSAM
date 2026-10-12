@@ -24,7 +24,7 @@ you need to implement here **and contains some errors** (see **Hints** below).
 * The server must operate autonomously! The server must not accept nor wait for any input on the terminal. All communication with the server must happen through TCP sockets.
 * You may run the server on the TSAM server or on some other computer. Note that in a later assignment, you must run the server such that other groups can connect to it.
 * The executable of your server must be called `tsamserver`. The server port you are listening on must be the first command line argument. For example:
-    `./tsamserver 4044`
+    `./tsamserver 4044`.
 Any additional command line arguments you want to define must be optional. Your
 server must function in a test without additional parameters or configuration.
 * The server must keep a timestamped log of all commands sent and received. This log may contain other information about the server state to facilitate debugging.
@@ -46,7 +46,7 @@ readable timestamp (date and time).
 All commands sent to the server and responses sent to the client must use the following format: `<SOH><length><STX><command><ETX>` with
 
 * the ASCII characters 0x01 (`<SOH>`), 0x02 (`<STX>`), and 0x03 (`<ETX>`) denoting the start of the header, start of text, and end of text, respectively, and
-* length being a 16-bit unsigned integer (in network-byte order) denoting the length of the transmission in bytes (including the five bytes for framing the message:
+* `length` being a 16-bit unsigned integer (in network-byte order) denoting the length of the transmission in bytes (including the five bytes for framing the message:
 `<SOH><length><STX>` and `<ETX>`).
 
 Your server must support commands up to a length of 5000 bytes. It may discard any commands that are longer.
