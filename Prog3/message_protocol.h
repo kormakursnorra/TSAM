@@ -74,7 +74,7 @@ namespace proto
         */
         int parseMessage( const std::string_view &buf, struct Frame& newFrame );
 
-        size_t findNextFrameStart( const std::string_view &buf )
+        size_t findNextFrameStart( const std::string_view &buf, struct Frame &newFrame );
     
         int sendMessage( );
 

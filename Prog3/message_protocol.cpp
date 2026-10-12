@@ -96,11 +96,11 @@ int proto::MessageHandler::parseMessage( const std::string_view &buf, struct Fra
 }
 
 // Returns the index of the next plausible frame start, or buf.size() if none.
-size_t proto::MessageHandler::findNextFrameStart( const std::string_view &buf ) 
+size_t proto::MessageHandler::findNextFrameStart( const std::string_view &buf, struct Frame &newFrame ) 
 {
     for (size_t i = 1; i < buf.size(); ++i) 
     {
-        if ( buf[i] == SOH && parseMessage( buf.substr( i ) ) != ParseStatus::Malformed )
+        if ( buf[i] == SOH && parseMessage( buf.substr( i ), newFrame ) != 1 )
         {
             return i;
         }
