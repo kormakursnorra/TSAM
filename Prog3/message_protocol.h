@@ -7,7 +7,7 @@
 #include <string>
 #include <array>
 
-namespace proto 
+namespace protocol
 {
     constexpr size_t HEADER_SIZE = 4;     // Size of message header
     constexpr size_t MIN_COMMAND = 10;    // STATUSREQ command
@@ -27,6 +27,8 @@ namespace proto
     inline constexpr std::array<std::string_view, 3> commandNames = {
         "SENDMSG", "GETMSG", "STATUSREQ"
     };
+
+    enum class ParseStatus { Ok, Incomplete, Malformed };
 
     enum class CommandType { None = -1, SendMsg, GetMsg, StatusReq };
 
@@ -54,9 +56,15 @@ namespace proto
     // Message frame
     struct Frame 
     {
-        size_t frameSize;  // bytes to consume from the buffer
-        Payload payload;   // the <command> part, between STX and ETX
+        size_t frameLen;  // bytes to consume from the buffer
+        Payload payload;  // the <command> part, between STX and ETX
     };
+
+    int parseMessage( const std::string_view &buf, struct Frame& newFrame );
+
+    constexpr size_t findNextFrameStart( const std::string_view &buf, struct Frame &newFrame );
+
+    constexpr int resolveCommand( const std::string_view &command, Payload &payload );
 
     /*
     This class provides functionality to parse and verify messages from clients. It processes
@@ -72,14 +80,7 @@ namespace proto
         /* 
         Parse and unpack a given buffer (message) into a Frame struct to return. 
         */
-        int parseMessage( const std::string_view &buf, struct Frame& newFrame );
-
-        size_t findNextFrameStart( const std::string_view &buf, struct Frame &newFrame );
-    
-        int sendMessage( );
-
-    private:
-        int resolveCommand( const std::string_view &command, Payload &payload );
+        
         
     };
 };

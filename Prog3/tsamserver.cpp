@@ -1,10 +1,11 @@
 #include "tsamserver.h"
+#include "message_protocol.h"
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <iostream>
 #include <list>
 
-std::map<int, Client*> clients; // Lookup table for per Client information
 
 int open_socket( int portnum )
 {
@@ -101,6 +102,78 @@ bool sendMessage( int sock, const std::string &msg )
     return true;
 }
 
+int acceptNewClient( int listenSock, 
+                    int clientSock, 
+                    int &numFds, 
+                    std::map< int, Client& > &clients, 
+                    std::vector< struct pollfd > &fds )
+{
+    struct sockaddr_in client;
+    socklen_t clientLen;
+    
+    if( ( clientSock = accept( listenSock, ( struct sockaddr * )&client, &clientLen ) ) < 0 )
+    {
+        std::cerr << "Failed to accept new client" << std::endl;
+        return ( -1 );
+    }
+
+    // Add new client to the list of fds being polled
+    fds.push_back( { clientSock, POLLIN, 0 } );
+
+    // create a new client to store information.
+    // Re-use the record for this socket if we have seen it
+    // before, so we don't leak a Client every time someone
+    // disconnects and reconnects.
+    if( clients.find( clientSock ) == clients.end() )
+    {
+        clients.insert_or_assign( clientSock, Client( clientSock ) );
+    }
+
+    // Decrement the number of sockets waiting to be dealt with
+    numFds--;
+
+    std::cout << "Client connected on server: " << clientSock << std::endl;
+    return 0;
+    
+}
+
+int receiveFromClient( std::map< int, Client& > &clients,
+                std::list< Client* > &disconnectedClients,
+                std::vector< struct pollfd > &fds, 
+                std::vector< struct pollfd > &readyFds )
+{
+    char buffer[ protocol::MAX_FRAME ];
+    std::string pendingMessage;
+
+    memset( buffer, 0, sizeof( buffer ) );  
+
+    for( size_t i = 1; i < readyFds.size(); i++ )
+    {
+        if( readyFds[i].revents & POLLIN)
+        {
+            int sock = readyFds[i].fd;
+            Client &client = clients.at( sock );
+
+            // recv() == 0 means client has closed connection
+            size_t bytesReceieved = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
+            if( bytesReceieved < 0 )
+            {
+                std::cerr << "No data received from sock: " << sock << std::endl;
+                continue;
+            }
+            else if( bytesReceieved == 0)
+            {
+                disconnectedClients.push_back( &client );
+                closeClient(sock, &fds);
+            }
+            else 
+            {
+
+            }
+        }
+    }
+}
+
 int main( int argc, char* argv[] )
 {
     // Process command line argument/s
@@ -138,97 +211,56 @@ int main( int argc, char* argv[] )
         exit( 0 );
     }
     else 
-    // Add listen socket to the list of fds being polled.
     {
+        // Add listen socket to the list of fds being polled.
         fds.push_back( { listenSock, POLLIN, 0 } );
     }
 
-    std::string pending;  
-    char buffer[ proto::MAX_FRAME ];
-    bool finished = false;
+    std::map< int, Client& > clients; // Lookup table for per Client information
     
-    while( !finished )
+    while( true )
     {
-        memset( buffer, 0, sizeof( buffer ) );
-
         // Wait (indefinitely) until at least one of our sockets has
         // something to be read() on it.
-        int n = poll( fds.data(), fds.size(), -1 );
+        int numFds = poll( fds.data(), fds.size(), -1 );
 
-        if( n < 0 )
+        if( numFds < 0 )
         {
-            std::cerr << "Poll failed - closing down" << std::endl;
-            finished = true;
+            // if interrupted by singal, continue
+            if( errno == EINTR )
+            {
+                continue;
+            }
+            
+            std::cerr << "Poll failed - Closing down" << std::endl;
+            break;
         }
-        else
+
+        // Take a snapshot of the current fds/revents before processing
+        // them below, since fds itself may be modified while we go
+        // (new clients connecting, existing clients disconnecting).
+        std::vector< struct pollfd > readyFds = fds;
+
+        // First, accept any new connections to the server on the listening socket
+        if( readyFds[0].revents & POLLIN )
         {
-            // Take a snapshot of the current fds/revents before processing
-            // them below, since fds itself may be modified while we go
-            // (new clients connecting, existing clients disconnecting).
-            std::vector< struct pollfd > readyFds = fds;
-
-            // First, accept any new connections to the server on the listening socket
-            if( readyFds[0].revents & POLLIN )
+            if( acceptNewClient( listenSock, clientSock, numFds, clients, fds ) < 0 )
             {
-                struct sockaddr_in client;
-                socklen_t clientLen;
-                
-                clientSock = accept( listenSock, ( struct sockaddr * )&client,
-                                   &clientLen );
-                
-                printf( "accept***\n" );
-                // Add new client to the list of fds being polled
-                fds.push_back( { clientSock, POLLIN, 0 } );
-
-                // create a new client to store information.
-                // Re-use the record for this socket if we have seen it
-                // before, so we don't leak a Client every time someone
-                // disconnects and reconnects.
-                if( clients.find( clientSock ) == clients.end() )
-                {
-                    clients[ clientSock ] = new Client( clientSock );
-                }
-
-               // Decrement the number of sockets waiting to be dealt with
-               n--;
-
-               printf("Client connected on server: %d\n", clientSock);
+                continue;
             }
+        }
+        
+        // Now check for commands from clients
+        std::list< Client* > disconnectedClients;  
+        while( numFds-- > 0 )
+        {
             
-            // Now check for commands from clients
-            std::list< Client * > disconnectedClients;  
             
-            while( n-- > 0 )
+            // Remove client from the clients list
+            for( auto const& c : disconnectedClients )
             {
-                for( size_t i = 1; i < readyFds.size(); i++ )
-                {
-                    if(readyFds[i].revents & POLLIN)
-                    {
-                        int sock = readyFds[i].fd;
-                        Client *client = clients[sock];
-
-                        // recv() == 0 means client has closed connection
-                        if(recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT) == 0)
-                        {
-                            disconnectedClients.push_back(client);
-                            closeClient(sock, &fds);
-
-                        }
-                        // We don't check for -1 (nothing received) because poll()
-                        // only triggers if there is something on the socket for us.
-                        else
-                        {
-                            std::cout << buffer << std::endl;
-                            clientCommand(sock, &fds, buffer);
-                        }
-                    }
-                }
-                // Remove client from the clients list
-                for( auto const& c : disconnectedClients )
-                {
-                    clients.erase( c->sock );
-                }    
-            }
+                clients.erase( c->sock );
+            }    
         }
     }
 

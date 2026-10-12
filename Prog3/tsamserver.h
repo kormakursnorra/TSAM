@@ -19,6 +19,7 @@
 #include <vector>
 #include <thread>
 #include <poll.h>
+#include <list>
 #include <map>
 
 #define BACKLOG  5  
@@ -28,20 +29,11 @@ struct Client
 public:
     int sock;                                     // socket of client connection
     std::string name;                             // Limit length of name of client's user
-    std::vector< struct proto::Frame* > messages; // The clients messages
+    std::vector< struct protocol::Frame* > messages; // The clients messages
 
     Client( int socket ) : sock( socket ){} 
 
     ~Client(){}       // Virtual destructor defined for base class
-};
-
-class ClientHandler
-{
-public:
-    std::map< int, struct Client* > clients; // Lookup table for per Client information (sock : Client)
-
-    ClientHandler();
-    ~ClientHandler();
 };
 
 /* 
@@ -54,6 +46,11 @@ void closeClient( int clientSocket, std::vector< struct pollfd > *fds );
 
 bool sendMessage( int sock, const std::string &msg );
 
-void clientCommand( int clientSocket, std::vector<struct pollfd> *fds, char *buffer );
+int acceptNewClient( int listenSock, int clientSock, int &numFds, std::vector< struct pollfd > &fds ); 
+
+int receiveFromClient( std::map< int, Client& > &clients, 
+                    std::list< Client* > &disconnectedClients,
+                    std::vector< struct pollfd > &fds, 
+                    std::vector< struct pollfd > &readyFds )
 
 
