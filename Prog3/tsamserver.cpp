@@ -116,7 +116,7 @@ int main( int argc, char* argv[] )
     int clientSock = -1;
 
     auto result = std::from_chars(
-                argv[1], argv[1] + sizeof( argv[1] ) - 1, listenPort );
+                argv[1], argv[1] + sizeof( &argv[1] ) - 1, listenPort );
 
     if( result.ec != std::errc() )
     {
@@ -130,15 +130,11 @@ int main( int argc, char* argv[] )
         exit( 1 );
     }
 
-    std::vector<struct pollfd> fds;
-
-    struct sockaddr_in client;
-    socklen_t clientLen;
-    char buffer[proto::MAX_FRAME];     
+    std::vector< struct pollfd > fds;     
 
     if( listen(listenSock, BACKLOG) < 0 )
     {
-        printf( "Listen failed on port %s\n", argv[1] );
+        std::cerr << "Listen failed on port: " << argv[1] << std::endl;
         exit( 0 );
     }
     else 
@@ -147,6 +143,8 @@ int main( int argc, char* argv[] )
         fds.push_back( { listenSock, POLLIN, 0 } );
     }
 
+    std::string pending;  
+    char buffer[ proto::MAX_FRAME ];
     bool finished = false;
     
     while( !finished )
@@ -159,7 +157,7 @@ int main( int argc, char* argv[] )
 
         if( n < 0 )
         {
-            perror( "poll failed - closing down\n" );
+            std::cerr << "Poll failed - closing down" << std::endl;
             finished = true;
         }
         else
@@ -172,6 +170,9 @@ int main( int argc, char* argv[] )
             // First, accept any new connections to the server on the listening socket
             if( readyFds[0].revents & POLLIN )
             {
+                struct sockaddr_in client;
+                socklen_t clientLen;
+                
                 clientSock = accept( listenSock, ( struct sockaddr * )&client,
                                    &clientLen );
                 
@@ -183,7 +184,7 @@ int main( int argc, char* argv[] )
                 // Re-use the record for this socket if we have seen it
                 // before, so we don't leak a Client every time someone
                 // disconnects and reconnects.
-                if(clients.find( clientSock ) == clients.end())
+                if( clients.find( clientSock ) == clients.end() )
                 {
                     clients[ clientSock ] = new Client( clientSock );
                 }

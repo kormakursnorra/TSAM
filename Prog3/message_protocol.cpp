@@ -81,7 +81,7 @@ int proto::MessageHandler::parseMessage( const std::string_view &buf, struct Fra
     } 
 
     // We need to check what kind of command is being sent.
-    auto command = buf.substr( buf[3], length - 1 );
+    auto command = buf.substr( STX, length - 1 );
     Payload payload; 
 
     if( resolveCommand( command, payload ) > 0 )
@@ -95,10 +95,23 @@ int proto::MessageHandler::parseMessage( const std::string_view &buf, struct Fra
     return 0;
 }
 
+// Returns the index of the next plausible frame start, or buf.size() if none.
+size_t proto::MessageHandler::findNextFrameStart( const std::string_view &buf ) 
+{
+    for (size_t i = 1; i < buf.size(); ++i) 
+    {
+        if ( buf[i] == SOH && parseMessage( buf.substr( i ) ) != ParseStatus::Malformed )
+        {
+            return i;
+        }
+    }
+    return buf.size();
+}
+
 int proto::MessageHandler::resolveCommand( const std::string_view &command, Payload &payload )
 {
     
-    CommandType commandName; 
+    CommandType commandName = CommandType::None; 
     for( auto i = 0U; i < commandNames.size(); ++i )
     {
         if( command.find( commandNames[i], 0 ) != std::string_view::npos )
@@ -109,7 +122,7 @@ int proto::MessageHandler::resolveCommand( const std::string_view &command, Payl
 
     switch( commandName )
     {
-        case proto::CommandType::SendMsg:
+        case CommandType::SendMsg:
         {
             // Unpack command (<from>,<to>,<message>) 
             size_t pos = commandNames[0].size() + 1;
@@ -120,25 +133,25 @@ int proto::MessageHandler::resolveCommand( const std::string_view &command, Payl
                 break; 
             }
             auto body = command.substr( pos );
-            payload = proto::SendMsg{ 
+            payload = SendMsg{ 
                 std::string( sender ), 
                 std::string( recipient ), 
                 std::string( body ) };
             break;   
         }
-        case proto::CommandType::GetMsg:
+        case CommandType::GetMsg:
         {
             size_t pos = commandNames[1].size() + 1;
             if( pos > command.size() ) 
             { 
                 break; 
             }
-            payload = proto::GetMsg{ std::string( nextField( command, pos ) ) };
+            payload = GetMsg{ std::string( nextField( command, pos ) ) };
             break;
         }
-        case proto::CommandType::StatusReq:
+        case CommandType::StatusReq:
         {
-            payload = proto::StatusReq{};
+            payload = StatusReq{};
             break;
         }
         default:
@@ -156,14 +169,4 @@ int proto::MessageHandler::resolveCommand( const std::string_view &command, Payl
 int proto::MessageHandler::sendMessage()
 {
 
-}
-
-int proto::MessageHandler::getMessage()
-{
-    
-}
-
-int proto::MessageHandler::statusRequest()
-{
-    
 }

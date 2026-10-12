@@ -1,3 +1,5 @@
+#pragma once
+
 #include <string_view>
 #include <optional>
 #include <variant>
@@ -5,8 +7,8 @@
 #include <string>
 #include <array>
 
-namespace proto {
-    
+namespace proto 
+{
     constexpr size_t HEADER_SIZE = 4;     // Size of message header
     constexpr size_t MIN_COMMAND = 10;    // STATUSREQ command
     constexpr size_t MAX_COMMAND = 5000;  // Set capped size for commands (bytes)
@@ -26,7 +28,7 @@ namespace proto {
         "SENDMSG", "GETMSG", "STATUSREQ"
     };
 
-    enum class CommandType { SendMsg, GetMsg, StatusReq };
+    enum class CommandType { None = -1, SendMsg, GetMsg, StatusReq };
 
     struct SendMsg   { std::string sender; std::string recipient; std::string body; };
     struct GetMsg    { std::string username; };
@@ -63,31 +65,21 @@ namespace proto {
     class MessageHandler
     {
     public:
+        
 
-        MessageHandler();     // Constructor
-
+        MessageHandler();    // Constructor
+        ~MessageHandler(){}; // Default destructor for class
         /* 
         Parse and unpack a given buffer (message) into a Frame struct to return. 
         */
         int parseMessage( const std::string_view &buf, struct Frame& newFrame );
-    
-    private:
-        int resolveCommand( const std::string_view &command, Payload &payload );
 
-        std::vector< std::string > splitFields( const std::string_view &command, size_t maxFields );
-        
+        size_t findNextFrameStart( const std::string_view &buf )
+    
         int sendMessage( );
 
-        int getMessage( );
-
-        int statusRequest( );
-
-
+    private:
+        int resolveCommand( const std::string_view &command, Payload &payload );
         
-        ~MessageHandler(){}                 // Default destructor for class
-        
-        
-
-
     };
 };

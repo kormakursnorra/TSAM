@@ -23,16 +23,25 @@
 
 #define BACKLOG  5  
 
-class Client
+struct Client
 {
 public:
-    int sock;                        // socket of client connection
-    std::string name;                // Limit length of name of client's user
-    std::vector<proto::Frame* > messages; // The clients messages
+    int sock;                                     // socket of client connection
+    std::string name;                             // Limit length of name of client's user
+    std::vector< struct proto::Frame* > messages; // The clients messages
 
     Client( int socket ) : sock( socket ){} 
 
     ~Client(){}       // Virtual destructor defined for base class
+};
+
+class ClientHandler
+{
+public:
+    std::map< int, struct Client* > clients; // Lookup table for per Client information (sock : Client)
+
+    ClientHandler();
+    ~ClientHandler();
 };
 
 /* 
