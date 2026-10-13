@@ -1,6 +1,5 @@
 #include "message_protocol.h"
 
-#include <optional>
 #include <string_view>
 #include <sys/types.h>
 #include <iostream>
@@ -9,30 +8,30 @@
 #include <cstdio>
 
 
-int protocol::parseMessage( const std::string_view &buf, struct Frame& newFrame )
+protocol::Frame protocol::parseMessage( const std::string_view &buf )
 {    
     if( buf.empty() )
     {
         std::cerr << "Received empty buffer" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Incomplete };
     }
 
     if( buf[0] != SOH )
     {
         std::cerr << "First character NOT <SOH> (0x01)" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Malformed };
     }
     
     if( buf.size() < HEADER_SIZE )
     {
         std::cerr << "Incomplete message (buf < HEADER_SIZE)" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Incomplete };
     }
     
     if ( buf[3] != STX ) 
     {
         std::cerr << "Missing character <STX> (0x02)" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Malformed };
     }
     
     // Extract <length> field. Since it's in big-endian we need to perform bitwise
@@ -45,19 +44,19 @@ int protocol::parseMessage( const std::string_view &buf, struct Frame& newFrame 
     if( length < MIN_FRAME || length > MAX_FRAME )
     {
         std::cerr << "Value of <length> not within MIN_FRAME or MAX_FRAME" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Malformed };
     }
 
     if( buf.size() < length || length > buf.size() )
     {
         std::cerr << "Size of buffer not the same as <length>" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Incomplete };
     }
 
     if( buf[ length - 1 ] != ETX )
     {
         std::cerr << "Last character NOT <ETX> (0x03)" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Malformed };
     } 
 
     // We need to check what kind of command is being sent.
@@ -67,20 +66,20 @@ int protocol::parseMessage( const std::string_view &buf, struct Frame& newFrame 
     if( resolveCommand( command, payload ) > 0 )
     {
         std::cerr << "Unable to resolve command" << std::endl;
-        return ( -1 );
+        return { ParseStatus::Malformed };
     }
+    
+    // buf.substr( HEADER_SIZE, length - HEADER_SIZE - 1 );
 
-    newFrame = Frame{ length, payload };
-
-    return 0;
+    return Frame{ ParseStatus::Ok, length, payload };
 }
 
 // Returns the index of the next plausible frame start, or buf.size() if none.
-constexpr size_t protocol::findNextFrameStart( const std::string_view &buf, struct Frame &newFrame ) 
+constexpr size_t protocol::findNextFrameStart( const std::string_view &buf ) 
 {
     for (size_t i = 1; i < buf.size(); ++i) 
     {
-        if ( buf[i] == SOH && parseMessage( buf.substr( i ), newFrame ) != 1 )
+        if ( buf[i] == SOH && parseMessage( buf.substr( i ) ).status != ParseStatus::Malformed )
         {
             return i;
         }

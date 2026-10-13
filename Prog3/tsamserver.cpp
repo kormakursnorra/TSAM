@@ -102,16 +102,14 @@ bool sendMessage( int sock, const std::string &msg )
     return true;
 }
 
-int acceptNewClient( int listenSock, 
-                    int clientSock, 
-                    int &numFds, 
-                    std::map< int, Client& > &clients, 
-                    std::vector< struct pollfd > &fds )
+int acceptNewClient( int listenSock, int clientSock, std::map< int, Client& > &clients, std::vector< struct pollfd > &fds )
 {
     struct sockaddr_in client;
     socklen_t clientLen;
     
-    if( ( clientSock = accept( listenSock, ( struct sockaddr * )&client, &clientLen ) ) < 0 )
+    clientSock = accept( listenSock, ( struct sockaddr * )&client, &clientLen );
+
+    if( clientSock < 0 )
     {
         std::cerr << "Failed to accept new client" << std::endl;
         return ( -1 );
@@ -129,49 +127,56 @@ int acceptNewClient( int listenSock,
         clients.insert_or_assign( clientSock, Client( clientSock ) );
     }
 
-    // Decrement the number of sockets waiting to be dealt with
-    numFds--;
-
     std::cout << "Client connected on server: " << clientSock << std::endl;
     return 0;
     
 }
 
-int receiveFromClient( std::map< int, Client& > &clients,
-                std::list< Client* > &disconnectedClients,
-                std::vector< struct pollfd > &fds, 
-                std::vector< struct pollfd > &readyFds )
+int receiveFromClient( int sock, char* buffer, std::string &pending, Client &client )
 {
-    char buffer[ protocol::MAX_FRAME ];
-    std::string pendingMessage;
-
-    memset( buffer, 0, sizeof( buffer ) );  
-
-    for( size_t i = 1; i < readyFds.size(); i++ )
+    size_t bytesReceieved = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
+    if( bytesReceieved == 0)
     {
-        if( readyFds[i].revents & POLLIN)
+        std::cerr << "Connection closed for sock: " << sock << std::endl;
+        return ( 1 );    
+    }
+    
+    struct protocol::Frame newFrame;
+
+    pending.append( buffer, bytesReceieved );
+    
+    while( true ) 
+    {
+        newFrame = protocol::parseMessage( pending );
+        
+        if( newFrame.status == protocol::ParseStatus::Ok )
         {
-            int sock = readyFds[i].fd;
-            Client &client = clients.at( sock );
+            // We need to check what kind of command is being sent.
+            auto command = buf.substr( protocol::STX, newFrame.frameLen - 1 );
+            protocol::Payload payload; 
 
-            // recv() == 0 means client has closed connection
-            size_t bytesReceieved = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
-            if( bytesReceieved < 0 )
+            if( resolveCommand( command, payload ) > 0 )
             {
-                std::cerr << "No data received from sock: " << sock << std::endl;
-                continue;
+                std::cerr << "Unable to resolve command" << std::endl;
+                return { ParseStatus::Malformed };
             }
-            else if( bytesReceieved == 0)
-            {
-                disconnectedClients.push_back( &client );
-                closeClient(sock, &fds);
-            }
-            else 
-            {
-
-            }
+            
+            client.messages.emplace(client.messages.size(), &newFrame.payload );
+            pending.erase(0, newFrame.frameLen);
+        }
+        else if ( newFrame.status == protocol::ParseStatus::Incomplete )
+        {
+            break;
+        }
+        else 
+        {
+            std::size_t skip = protocol::findNextFrameStart( pending, newFrame );
+            std::cerr << "Malformed input, discarding " << skip << " bytes\n";
+            pending.erase(0, skip);
         }
     }
+
+    return 0;     
 }
 
 int main( int argc, char* argv[] )
@@ -193,7 +198,7 @@ int main( int argc, char* argv[] )
 
     if( result.ec != std::errc() )
     {
-        perror( "Bad argument error <ip port>\n" );
+        std::cerr << "Bad argument error <ip port>" << std::endl;
         exit( 1 );
     }
 
@@ -244,20 +249,42 @@ int main( int argc, char* argv[] )
         // First, accept any new connections to the server on the listening socket
         if( readyFds[0].revents & POLLIN )
         {
-            if( acceptNewClient( listenSock, clientSock, numFds, clients, fds ) < 0 )
+            if( acceptNewClient( listenSock, clientSock, clients, fds ) < 0 )
             {
+
                 continue;
             }
+
+            // Decrement the number of sockets waiting to be dealt with
+            numFds--;
         }
         
+        std::vector< struct Client* > disconnectedClients;
+        char buffer[ protocol::MAX_FRAME ];
+        std::string pendingMessage;
+        
         // Now check for commands from clients
-        std::list< Client* > disconnectedClients;  
         while( numFds-- > 0 )
         {
-            
-            
+            memset( buffer, 0, sizeof( buffer ) );  
+
+            for( size_t i = 1; i < readyFds.size(); i++ )
+            {
+                if( readyFds[i].revents & POLLIN)
+                {
+                    int sock = readyFds[i].fd;
+                    Client &client = clients.at( sock );
+                    
+                    receiveFromClient( sock, buffer, pendingMessage, client );
+
+                    disconnectedClients.push_back( &client );
+                    closeClient(sock, &fds);
+
+                }
+            }
+
             // Remove client from the clients list
-            for( auto const& c : disconnectedClients )
+            for( auto const &c : disconnectedClients )
             {
                 clients.erase( c->sock );
             }    

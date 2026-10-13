@@ -56,13 +56,14 @@ namespace protocol
     // Message frame
     struct Frame 
     {
+        ParseStatus status; 
         size_t frameLen;  // bytes to consume from the buffer
         Payload payload;  // the <command> part, between STX and ETX
     };
 
-    int parseMessage( const std::string_view &buf, struct Frame& newFrame );
+    protocol::Frame parseMessage( const std::string_view &buf );
 
-    constexpr size_t findNextFrameStart( const std::string_view &buf, struct Frame &newFrame );
+    constexpr size_t findNextFrameStart( const std::string_view &buf );
 
     constexpr int resolveCommand( const std::string_view &command, Payload &payload );
 

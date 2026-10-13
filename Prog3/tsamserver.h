@@ -46,11 +46,8 @@ void closeClient( int clientSocket, std::vector< struct pollfd > *fds );
 
 bool sendMessage( int sock, const std::string &msg );
 
-int acceptNewClient( int listenSock, int clientSock, int &numFds, std::vector< struct pollfd > &fds ); 
+int acceptNewClient( int listenSock, int clientSock, std::vector< struct pollfd > &fds ); 
 
-int receiveFromClient( std::map< int, Client& > &clients, 
-                    std::list< Client* > &disconnectedClients,
-                    std::vector< struct pollfd > &fds, 
-                    std::vector< struct pollfd > &readyFds )
+int receiveFromClient( int sock, char* buffer, std::string &pending, Client &client )
 
 
