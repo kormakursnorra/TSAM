@@ -5,7 +5,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cerrno>
-
+#include "tsamclient.h"
 #include <ctime>
 #include <iomanip>
 #include <sstream>
