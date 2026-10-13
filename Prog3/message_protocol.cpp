@@ -1,5 +1,6 @@
 #include "message_protocol.h"
 
+#include <optional>
 #include <string_view>
 #include <sys/types.h>
 #include <iostream>
@@ -8,30 +9,33 @@
 #include <cstdio>
 
 
-protocol::Frame protocol::parseMessage( const std::string_view &buf )
+namespace protocol
+{
+
+Frame parseMessage( const std::string_view &buf )
 {    
     if( buf.empty() )
     {
         std::cerr << "Received empty buffer" << std::endl;
-        return { ParseStatus::Incomplete };
+        return { FrameStatus::Incomplete };
     }
 
     if( buf[0] != SOH )
     {
         std::cerr << "First character NOT <SOH> (0x01)" << std::endl;
-        return { ParseStatus::Malformed };
+        return { FrameStatus::Malformed };
     }
     
     if( buf.size() < HEADER_SIZE )
     {
         std::cerr << "Incomplete message (buf < HEADER_SIZE)" << std::endl;
-        return { ParseStatus::Incomplete };
+        return { FrameStatus::Incomplete };
     }
     
     if ( buf[3] != STX ) 
     {
         std::cerr << "Missing character <STX> (0x02)" << std::endl;
-        return { ParseStatus::Malformed };
+        return { FrameStatus::Malformed };
     }
     
     // Extract <length> field. Since it's in big-endian we need to perform bitwise
@@ -44,60 +48,49 @@ protocol::Frame protocol::parseMessage( const std::string_view &buf )
     if( length < MIN_FRAME || length > MAX_FRAME )
     {
         std::cerr << "Value of <length> not within MIN_FRAME or MAX_FRAME" << std::endl;
-        return { ParseStatus::Malformed };
+        return { FrameStatus::Malformed };
     }
 
     if( buf.size() < length || length > buf.size() )
     {
         std::cerr << "Size of buffer not the same as <length>" << std::endl;
-        return { ParseStatus::Incomplete };
+        return { FrameStatus::Incomplete };
     }
 
     if( buf[ length - 1 ] != ETX )
     {
         std::cerr << "Last character NOT <ETX> (0x03)" << std::endl;
-        return { ParseStatus::Malformed };
+        return { FrameStatus::Malformed };
     } 
-
-    // We need to check what kind of command is being sent.
-    auto command = buf.substr( STX, length - 1 );
-    Payload payload; 
-
-    if( resolveCommand( command, payload ) > 0 )
-    {
-        std::cerr << "Unable to resolve command" << std::endl;
-        return { ParseStatus::Malformed };
-    }
     
-    // buf.substr( HEADER_SIZE, length - HEADER_SIZE - 1 );
-
-    return Frame{ ParseStatus::Ok, length, payload };
+    return Frame{
+                FrameStatus::Ok, 
+                length, 
+                buf.substr(HEADER_SIZE, length - HEADER_SIZE - 1 ) };
 }
 
 // Returns the index of the next plausible frame start, or buf.size() if none.
-constexpr size_t protocol::findNextFrameStart( const std::string_view &buf ) 
+size_t findNextFrameStart( const std::string_view &buf ) 
 {
-    for (size_t i = 1; i < buf.size(); ++i) 
+    size_t nextFramePos = buf.find( SOH, 1 );
+    if( nextFramePos == std::string_view::npos )
     {
-        if ( buf[i] == SOH && parseMessage( buf.substr( i ) ).status != ParseStatus::Malformed )
-        {
-            return i;
-        }
+        return buf.size();
     }
-    return buf.size();
+    return nextFramePos;
 }
 
-constexpr std::string_view nextField( const std::string_view &command, size_t& startPos )
+constexpr std::string_view nextField( const std::string_view &body, size_t& startPos )
 {
-    if ( startPos > command.size() ) {
+    if ( startPos > body.size() ) {
         return {}; // ran out of fields
     }
-    size_t comma = command.find(',', startPos);
-    std::string_view field = command.substr(startPos, comma - startPos);
+    size_t comma = body.find(',', startPos);
+    std::string_view field = body.substr(startPos, comma - startPos);
     
     if( comma == std::string_view::npos )
     {
-        startPos = command.size() + 1;
+        startPos = body.size() + 1;
     }
     else {
         startPos = comma + 1;
@@ -106,60 +99,42 @@ constexpr std::string_view nextField( const std::string_view &command, size_t& s
     return field;
 }
 
-constexpr int protocol::resolveCommand( const std::string_view &command, Payload &payload )
+std::optional< Payload > resolveCommand( const std::string_view &body )
 {
-    
-    CommandType commandName = CommandType::None; 
-    for( auto i = 0U; i < commandNames.size(); ++i )
+    size_t pos = 0;
+    std::string_view name = nextField( body, pos );
+
+    if( name == "SENDMSG" )
     {
-        if( command.find( commandNames[i], 0 ) != std::string_view::npos )
-        {
-            commandName = static_cast< CommandType >( i );
+        auto sender    = nextField( body, pos );
+        auto recipient = nextField( body, pos );
+        auto contents = body.substr( pos );
+        if( pos > body.size() || sender.empty() || recipient.empty() || contents.empty() ) 
+        { 
+            return std::nullopt; 
         }
+        return SendMsg{ 
+            std::string( sender ), 
+            std::string( recipient ), 
+            std::string( contents ) };  
+    }
+    
+    if( name == "GETMSG" )
+    {
+        auto username = nextField( body, pos);
+        if( pos > body.size() || username.empty() ) 
+        { 
+            return std::nullopt; 
+        }
+        return GetMsg{ std::string( username ) };
     }
 
-    switch( commandName )
+    if( name == "STATUSREQ" && pos > body.size() )
     {
-        case CommandType::SendMsg:
-        {
-            // Unpack command (<from>,<to>,<message>) 
-            size_t pos = commandNames[0].size() + 1;
-            auto sender    = nextField( command, pos );
-            auto recipient = nextField( command, pos );
-            if( pos > command.size() ) 
-            { 
-                break; 
-            }
-            auto body = command.substr( pos );
-            payload = SendMsg{ 
-                std::string( sender ), 
-                std::string( recipient ), 
-                std::string( body ) };
-            break;   
-        }
-        case CommandType::GetMsg:
-        {
-            size_t pos = commandNames[1].size() + 1;
-            if( pos > command.size() ) 
-            { 
-                break; 
-            }
-            payload = GetMsg{ std::string( nextField( command, pos ) ) };
-            break;
-        }
-        case CommandType::StatusReq:
-        {
-            payload = StatusReq{};
-            break;
-        }
-        default:
-        {
-            std::cerr << "No valid command name found in given <command>" << std::endl;
-            return ( -1 );
-        }
+        return StatusReq{};
     }
 
-    return 0;
-    
-
+    return std::nullopt;
 }
+
+};
