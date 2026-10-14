@@ -46,7 +46,7 @@ namespace protocol
         std::string_view body; // the <command> part, between STX and ETX
     };
 
-    std::string createFrame( const std::string &message );
+    std::string createFrame( const std::string_view &message );
 
     Frame parseMessage( const std::string_view &message );
 
