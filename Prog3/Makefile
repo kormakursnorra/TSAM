@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := --std=c++17 -Wall -Wextra -W
+CXXFLAGS := --std=c++17 -Wall -Wextra -W -fsanitize=address -fsanitize=undefined
 TARGETS := tsamclient tsamserver
 OBJECTS := message_protocol.o tsamclient.o tsamserver.o
 
