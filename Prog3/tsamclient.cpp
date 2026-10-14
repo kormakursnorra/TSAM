@@ -1,3 +1,5 @@
+#include "message_protocol.h"
+
 #include <iostream>
 #include <string>
 #include <cstdint>
@@ -10,22 +12,6 @@
 #include <iomanip>
 #include <sstream>
 
-std::string createFrame(const std::string& command)
-{
-    uint16_t length =   command.size() + 5;
-    uint16_t networkLength = htons(length);
-    std::string frame;
-    frame.push_back('\x01'); // SOH
-
-    frame.append(reinterpret_cast<const char*>(&networkLength), sizeof(networkLength));
-
-    frame.push_back('\x02'); // STX
-    frame += command;
-    frame.push_back('\x03'); // ETX
-
-    return frame;
-}
-
 
 std::string decodeFrame(const std::string& frame)
 {
@@ -36,9 +22,9 @@ std::string decodeFrame(const std::string& frame)
     }
 
     // Check framing characters
-    if (frame[0] != '\x01' ||
-        frame[3] != '\x02' ||
-        frame.back() != '\x03')
+    if (frame[0] != protocol::SOH ||
+        frame[3] != protocol::STX ||
+        frame.back() != protocol::ETX )
     {
         return "Invalid frame";
     }
@@ -204,14 +190,10 @@ int main(int argc, char* argv[])
     std:: string command;
     std::string receiveBuffer;
 
-    while(true){
+    while(true) {
         std::cout <<  "\n" << std::flush;
 
         if (!std::getline(std::cin, command))
-        {
-            break;
-        }
-        if (command == "Quit" || command == "QUIT" || command == "quit")
         {
             break;
         }
@@ -221,7 +203,7 @@ int main(int argc, char* argv[])
             std::cerr << "Error: Command exceeds 5000 bytes\n";
             continue;
         }
-        std::string frame = createFrame(command);
+        std::string frame = protocol::createFrame( command );
         std::cout << "[" << getTimestamp()<< "] Sending: " << command << "\n";
 
        

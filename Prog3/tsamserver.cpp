@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <charconv>
 #include <iostream>
+#include <netinet/in.h>
 #include <string>
 #include <variant>
 
@@ -39,7 +40,7 @@ int open_socket( int portnum )
     set = 1;
 
 #ifdef __APPLE__     
-    if( setsockopt( sock, SOL_SOCKET, SOCK_NONBLOCK, &set, sizeof( set ) ) < 0 )
+    if( setsockopt( sock, SOL_SOCKET, SOCK_NONBLOCK | SO_NOSIGPIPE, &set, sizeof( set ) ) < 0 )
     {
       perror( "Failed to set SOCK_NOBBLOCK" );
     }
@@ -92,7 +93,7 @@ int sendMessage( int clientSock, const std::string &replyMsg )
 
     while( remaining > 0 )
     {
-        int bytesSent = send( clientSock, payload, remaining, MSG_DONTWAIT );
+        int bytesSent = send( clientSock, payload, remaining, MSG_DONTWAIT | MSG_NOSIGNAL );
         
         if( bytesSent < 0 )
         {
@@ -123,7 +124,7 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
     if( auto *command = std::get_if< protocol::SendMsg >( &payload ) )
     {
         
-        auto clientBox = mailBoxes[ command->recipient ];
+        auto &clientBox = mailBoxes[ command->recipient ];
         clientBox.push_back( command->sender + "," + command->contents );
         return "Message sent";
     }
@@ -136,8 +137,8 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
             return "Couldn't find user" + command->username;
         }
         
-        auto clientBox = it->second;
-        std::string msg = std::move( clientBox.front() ); // Get newest message
+        auto &clientBox = it->second;
+        std::string msg = std::move( clientBox.front() ); // Get the users oldest message
         clientBox.pop_front();                            // Take it off the deque after retrieving
         
         if( clientBox.empty() )
@@ -149,23 +150,28 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
 
     }
 
-    if( auto *command = std::get_if< protocol::StatusReq >( &payload ) )
+    if( std::holds_alternative< protocol::StatusReq >( payload ) )
     {
         if( mailBoxes.empty() )
         {
             return "EMPTY";
         }
 
-        std::string respone;
+        std::string response;
         for( const auto &[ username, box ] : mailBoxes )
         {
-            if( !respone.empty() )
+            if( !response.empty() )
             {
-                respone += ',';
+                response += ',';
             }
-            respone += username + ':' + std::to_string( box.size() );
+            response += username + ':' + std::to_string( box.size() );
         }
-        return respone;
+        
+        if( response.size() == protocol::MAX_FRAME )
+        {
+            return "Size of reply exceeds allowed limit";
+        }
+        return response;
     }
 
     return "UNKOWN";
@@ -201,19 +207,27 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
 
 int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBoxes )
 {
-    ssize_t bytesReceieved = recv(sock, buffer, sizeof( &buffer ), MSG_DONTWAIT);
-    if( bytesReceieved == 0)
+    ssize_t bytesReceieved = recv(sock, buffer, protocol::MAX_FRAME, MSG_DONTWAIT);
+    if( bytesReceieved < 0 )
+    {
+        if( errno == EAGAIN || errno == EINTR )
+        {
+            std::cerr << "recv interrupted by a signal or client unavailable" << std::endl;
+            return 0;
+        }
+    }
+    
+    if( bytesReceieved == 0 )
     {
         std::cerr << "Connection closed for sock: " << sock << std::endl;
         return 1;    
     }
     
-    std::string pendingMessage;
-    pendingMessage.append( buffer, bytesReceieved );
+    client.inbox.append( buffer, bytesReceieved );
     
     while( true ) 
     {
-        auto newFrame = protocol::parseMessage( pendingMessage );
+        auto newFrame = protocol::parseMessage( client.inbox );
         
         if( newFrame.status == protocol::FrameStatus::Incomplete )
         {
@@ -222,9 +236,9 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
         
         if ( newFrame.status == protocol::FrameStatus::Malformed )
         {
-            size_t skip = protocol::findNextFrameStart( pendingMessage );
+            size_t skip = protocol::findNextFrameStart( client.inbox );
             std::cerr << "Malformed input, discarding " << skip << " bytes\n";
-            pendingMessage.erase(0, skip);
+            client.inbox.erase(0, skip);
             continue;
         }
 
@@ -241,7 +255,8 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
             replyMessage = "ERROR: Unknown command";
         }
         
-        pendingMessage.erase( 0, newFrame.frameLen );
+        replyMessage = protocol::createFrame( replyMessage );
+        client.inbox.erase( 0, newFrame.frameLen );
         if( sendMessage( client.sock, replyMessage ) < 0 )
         {
             return 1;
@@ -250,11 +265,6 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
 
     return 0;     
 }
-
-// int onFileDescReady( int listenSock, int clientSock, int &numFds, std::map< int, Client > &clients, std::vector< struct pollfd > &fds )
-// {
-    
-// }
 
 
 int main( int argc, char* argv[] )
@@ -290,7 +300,7 @@ int main( int argc, char* argv[] )
     if( listen(listenSock, BACKLOG) < 0 )
     {
         std::cerr << "Listen failed on port: " << argv[1] << std::endl;
-        exit( 0 );
+        exit( 1 );
     }
     else 
     {
@@ -375,5 +385,6 @@ int main( int argc, char* argv[] )
 
     }
 
+    close( listenSock );
     return 0;
 }

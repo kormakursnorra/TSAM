@@ -10,11 +10,11 @@
 namespace protocol
 {
     constexpr size_t HEADER_SIZE = 4;     // Size of message header
-    constexpr size_t MIN_COMMAND = 9;    // STATUSREQ command
+    constexpr size_t MIN_COMMAND = 5;     
     constexpr size_t MAX_COMMAND = 5000;  // Set capped size for commands (bytes)
     
     // Set minimum valid size for a single message (15 bytes)
-    constexpr size_t MIN_FRAME = HEADER_SIZE + MIN_COMMAND + 1; 
+    constexpr size_t MIN_FRAME = HEADER_SIZE + 1; 
     // Set capped size for a single message (5005 bytes)
     constexpr size_t MAX_FRAME = HEADER_SIZE + MAX_COMMAND + 1; 
 
@@ -46,27 +46,11 @@ namespace protocol
         std::string_view body; // the <command> part, between STX and ETX
     };
 
-    Frame parseMessage( const std::string_view &buf );
+    std::string createFrame( const std::string &message );
 
-    size_t findNextFrameStart( const std::string_view &buf );
+    Frame parseMessage( const std::string_view &message );
+
+    size_t findNextFrameStart( const std::string_view &message );
 
     std::optional< Payload > resolveCommand( const std::string_view &command );
-
-    /*
-    This class provides functionality to parse and verify messages from clients. It processes
-    the raw data packets into defined Frame structs.
-    */
-    class MessageHandler
-    {
-    public:
-        
-
-        MessageHandler();    // Constructor
-        ~MessageHandler(){}; // Default destructor for class
-        /* 
-        Parse and unpack a given buffer (message) into a Frame struct to return. 
-        */
-        
-        
-    };
 };

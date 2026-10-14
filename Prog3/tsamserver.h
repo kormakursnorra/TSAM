@@ -34,13 +34,13 @@
 struct Client
 {
 public:
-    int sock;          // socket of client connection
-    std::string name;  // Limit length of name of client's user
-
+    int sock;           // socket of client connection
+    std::string name;   // Limit length of name of client's user
+    std::string inbox;  // bytes received but not yet parsed
 
     Client( int socket ) : sock( socket ){} 
 
-    ~Client(){}       // Virtual destructor defined for base class
+    ~Client(){}     
 };
 
 // Receipients and their messages
@@ -71,6 +71,3 @@ Creates a new instance of Client and adds it to the list
 int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds ); 
 
 int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &boxes );
-
-
-// int onFileDescReady( int listenSock, int clientSock, int &numFds, std::map< int, Client > &clients, PolledFds &fds )
