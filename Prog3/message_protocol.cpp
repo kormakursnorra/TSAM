@@ -121,39 +121,44 @@ constexpr std::string_view nextField( const std::string_view &body, size_t& star
 
 std::optional< Payload > resolveCommand( const std::string_view &body )
 {
+    if( body.empty() )
+    {
+        return std::nullopt;
+    }
+
     size_t pos = 0;
     std::string_view name = nextField( body, pos );
 
     if( name == "SENDMSG" )
     {
-        auto sender    = nextField( body, pos );
+        auto sender = nextField( body, pos );
         auto recipient = nextField( body, pos );
-        if( pos > body.size() || sender.empty() || recipient.empty() ) 
-        { 
-            return std::nullopt; 
-        }
-        auto contents = body.substr( pos );
-        if( pos > body.size() || contents.empty() )
+        if( sender.empty() || recipient.empty() )
         {
             return std::nullopt;
         }
-        return SendMsg{ 
-            std::string( sender ), 
-            std::string( recipient ), 
-            std::string( contents ) };  
+
+        const auto contentsStart = pos;
+        auto contents = body.substr( contentsStart );
+        if( contents.empty() )
+        {
+            return std::nullopt;
+        }
+
+        return SendMsg{ std::string( sender ), std::string( recipient ), std::string( contents ) };
     }
-    
+
     if( name == "GETMSG" )
     {
-        auto username = nextField( body, pos);
-        if( pos > body.size() || username.empty() ) 
-        { 
-            return std::nullopt; 
+        auto username = nextField( body, pos );
+        if( username.empty() )
+        {
+            return std::nullopt;
         }
         return GetMsg{ std::string( username ) };
     }
 
-    if( name == "STATUSREQ" && pos > body.size() )
+    if( name == "STATUSREQ" )
     {
         return StatusReq{};
     }
