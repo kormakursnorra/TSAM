@@ -1,34 +1,16 @@
 #include "message_protocol.h"
+#include "tsamclient.h"
 
-#include <iostream>
-#include <string>
-#include <cstdint>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <iostream>
 #include <unistd.h>
-#include <cerrno>
-#include "tsamclient.h"
-#include <ctime>
+#include <cstdint>
 #include <iomanip>
 #include <sstream>
-
-
-std::string getTimestamp()
-{
-    std::time_t now = std::time(nullptr);
-
-    std::tm localTime{};
-
-    localtime_r(&now, &localTime);
-
-    std::ostringstream oss;
-
-    oss << std::put_time(
-        &localTime, "%Y-%m-%d %H:%M:%S"
-    );
-
-    return oss.str();
-}
+#include <string>
+#include <cerrno>
+#include <ctime>
 
 bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
 {
@@ -135,7 +117,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::cout << "Connected to server!\n";
+    std::cout << "Connected to server!";
     std:: string command;
     std::string receiveBuffer;
 

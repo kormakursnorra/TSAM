@@ -213,9 +213,9 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
 }
 
 
-int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBoxes )
+int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &mailBoxes )
 {
-    ssize_t bytesReceieved = recv(sock, buffer, protocol::MAX_FRAME, MSG_DONTWAIT);
+    ssize_t bytesReceieved = recv(clientSock, buffer, protocol::MAX_FRAME, MSG_DONTWAIT);
     if( bytesReceieved < 0 )
     {
         if( errno == EAGAIN || errno == EINTR )
@@ -227,7 +227,7 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
     
     if( bytesReceieved == 0 )
     {
-        std::cerr << "Connection closed for sock: " << sock << std::endl;
+        std::cerr << "Connection closed for clientSock: " << clientSock << std::endl;
         return 1;    
     }
     
@@ -235,10 +235,12 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
     
     while( true ) 
     {
+        std::string replyMessage;
         auto newFrame = protocol::parseMessage( client.inbox );
         
         if( newFrame.status == protocol::FrameStatus::Incomplete )
         {
+            
             break;
         }
         
@@ -250,8 +252,11 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
             continue;
         }
 
+        std::cout << "Message size: " << client.inbox.size() << std::endl;
+        std::cout << "Message: " << client.inbox << ", received from client: " << client.sock << std::endl;
+
         // We need to check what kind of command is being sent.
-        std::string replyMessage;
+        
         auto payload = protocol::resolveCommand( newFrame.body ); 
         
         if( payload )
@@ -301,6 +306,8 @@ int main( int argc, char* argv[] )
     {
         exit( 1 );
     }
+
+    std::cout << "Server is running on port " << listenPort << "!" << std::endl; 
 
     PolledFds fds;     
 
