@@ -36,7 +36,6 @@ Frame parseMessage( const std::string_view &message )
 {    
     if( message.empty() )
     {
-        std::cerr << "Received empty buffer" << std::endl;
         return { FrameStatus::Incomplete, 0, "" };
     }
 
