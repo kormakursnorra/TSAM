@@ -88,16 +88,17 @@ void closeClient( int clientSocket, std::vector< struct pollfd > *fds )
 
 int sendMessage( int clientSock, const std::string &replyMsg )
 {
-    const char *payload = replyMsg.c_str();
-    size_t remaining    = replyMsg.length();
+    std::string frame   = protocol::createFrame( replyMsg );
+    const char *payload = frame.c_str();
+    size_t remaining    = frame.length();
 
     while( remaining > 0 )
     {
-        int bytesSent = send( clientSock, payload, remaining, MSG_DONTWAIT | MSG_NOSIGNAL );
+        int bytesSent = send( clientSock, payload, remaining, MSG_NOSIGNAL );
         
         if( bytesSent < 0 )
         {
-            if( errno == EAGAIN || errno == EWOULDBLOCK )
+            if( errno == EINTR )
             {
                 continue;
             }
@@ -174,7 +175,7 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
         return response;
     }
 
-    return "UNKOWN";
+    return "UNKNOWN";
 }
 
 
@@ -189,6 +190,13 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     if( clientSock < 0 )
     {
         std::cerr << "Failed to accept new client" << std::endl;
+        return -1;
+    }
+
+    struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
+    if ( setsockopt(clientSock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0 )
+    {
+        std::cerr << "Error setting socket option to SO_SNDTIMEO" << std::endl;
         return -1;
     }
 
@@ -255,7 +263,6 @@ int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &mailBo
             replyMessage = "ERROR: Unknown command";
         }
         
-        replyMessage = protocol::createFrame( replyMessage );
         client.inbox.erase( 0, newFrame.frameLen );
         if( sendMessage( client.sock, replyMessage ) < 0 )
         {

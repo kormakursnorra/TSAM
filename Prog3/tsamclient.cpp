@@ -13,109 +13,6 @@
 #include <sstream>
 
 
-std::string decodeFrame(const std::string& frame)
-{
-    // A frame must contain at least 5 bytes
-    if (frame.size() < 5)
-    {
-        return "Invalid frame";
-    }
-
-    // Check framing characters
-    if (frame[0] != protocol::SOH ||
-        frame[3] != protocol::STX ||
-        frame.back() != protocol::ETX )
-    {
-        return "Invalid frame";
-    }
-
-    // Read the 2-byte length field
-    uint16_t length =
-        (static_cast<uint8_t>(frame[1]) << 8) |
-        static_cast<uint8_t>(frame[2]);
-
-    if (length != frame.size())
-    {
-        return "Invalid frame";
-    }
-
-    // Extract text between STX and ETX
-    return frame.substr(4, frame.size() - 5);
-}
-
-
-bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
-{
-    char temp[1024];
-
-    while (true)
-    {
-        // Check whether we have enough bytes for a header
-        if (receiveBuffer.size() >= 4)
-        {
-            if (receiveBuffer[0] != '\x01' ||
-                receiveBuffer[3] != '\x02')
-            {
-                std::cerr << "Invalid response header\n";
-                return false;
-            }
-
-            // Extract frame length
-            uint16_t length =
-                (static_cast<uint8_t>(receiveBuffer[1]) << 8) |
-                static_cast<uint8_t>(receiveBuffer[2]);
-
-            if (length < 5 || length > 5005)
-            {
-                std::cerr << "Invalid response length\n";
-                return false;
-            }
-
-            // Check if the whole frame has arrived
-            if (receiveBuffer.size() >= length)
-            {
-                std::string frame =
-                    receiveBuffer.substr(0, length);
-
-                receiveBuffer.erase(0, length);
-
-                if (frame.back() != '\x03')
-                {
-                    std::cerr << "Invalid response ending\n";
-                    return false;
-                }
-
-                response = frame.substr(4, length - 5);
-                return true;
-            }
-        }
-
-        // Receive more data from the server
-        ssize_t n = recv(sock, temp, sizeof(temp), 0);
-
-        if (n < 0 && errno == EINTR)
-        {
-            continue;
-        }
-
-        if (n < 0)
-        {
-            perror("Error: recv");
-            return false;
-        }
-
-        if (n == 0)
-        {
-            std::cerr << "Server disconnected\n";
-            return false;
-        }
-
-        receiveBuffer.append(
-            temp, static_cast<size_t>(n)
-        );
-    }
-}
-
 std::string getTimestamp()
 {
     std::time_t now = std::time(nullptr);
@@ -131,6 +28,58 @@ std::string getTimestamp()
     );
 
     return oss.str();
+}
+
+bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
+{
+    char temp[ protocol::MAX_FRAME ];
+
+    while (true)
+    {
+        // Receive more data from the server
+        ssize_t bytesReceived = recv(sock, temp, sizeof(temp), 0);
+
+        if (bytesReceived < 0 && errno == EINTR)
+        {
+            continue;
+        }
+
+        if (bytesReceived < 0)
+        {
+            perror("Error: recv");
+            return false;
+        }
+
+        if (bytesReceived == 0)
+        {
+            std::cerr << "Server disconnected\n";
+            return false;
+        }
+
+        receiveBuffer.append(
+            temp, static_cast< size_t >( bytesReceived )
+        );
+        
+        auto frame = protocol::parseMessage( receiveBuffer );
+        
+        if( frame.status == protocol::FrameStatus::Incomplete )
+        {
+            return false;
+        }
+        
+        if ( frame.status == protocol::FrameStatus::Malformed )
+        {
+            size_t skip = protocol::findNextFrameStart( receiveBuffer );
+            std::cerr << "Malformed input, discarding " << skip << " bytes\n";
+            receiveBuffer.erase(0, skip);
+            continue;
+        }
+
+        
+        response = frame.body;    
+        receiveBuffer.erase( 0, frame.frameLen );
+        return true;
+    }
 }
 
 
@@ -198,6 +147,11 @@ int main(int argc, char* argv[])
             break;
         }
 
+        if( command.empty() )
+        {
+            continue;
+        }
+
         if (command.size() > 5000)
         {
             std::cerr << "Error: Command exceeds 5000 bytes\n";
@@ -226,12 +180,14 @@ int main(int argc, char* argv[])
 
             sent += static_cast<size_t>(n);
         }
+        
         std::string response;
 
-        if (!receiveFrame(sock, receiveBuffer, response))
+        if ( !receiveFrame(sock, receiveBuffer, response) )
         {
             break;
         }
+        
         std::cout << "[" << getTimestamp()<< "] Server responded: " << response << "\n";
     }
     close(sock);
