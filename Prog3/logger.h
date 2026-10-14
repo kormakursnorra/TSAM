@@ -4,4 +4,8 @@
 
 std::string getTimestamp();
 
-int logToFile();
+bool logInit( const std::string &path );
+
+int logToFile( const std::string &logMsg );
+
+void logEnd();

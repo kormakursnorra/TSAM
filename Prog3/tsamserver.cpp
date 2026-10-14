@@ -86,7 +86,7 @@ void closeClient( int clientSocket, std::vector< struct pollfd > *fds )
 }
 
 
-int sendMessage( int clientSock, const std::string &replyMsg )
+int sendMessage( int clientSock, const std::string_view &replyMsg )
 {
     std::string frame   = protocol::createFrame( replyMsg );
     const char *payload = frame.c_str();
@@ -170,7 +170,7 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
         
         if( response.size() == protocol::MAX_FRAME )
         {
-            return "Size of reply exceeds allowed limit";
+            return "Size of reply is equal to or exceeds MAX_FRAME";
         }
         return response;
     }
@@ -248,7 +248,7 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
         {
             size_t skip = protocol::findNextFrameStart( client.inbox );
             std::cerr << "Malformed input, discarding " << skip << " bytes\n";
-            client.inbox.erase(0, skip);
+            client.inbox.erase( 0, skip );
             continue;
         }
 
@@ -257,7 +257,7 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
 
         // We need to check what kind of command is being sent.
         
-        auto payload = protocol::resolveCommand( newFrame.body ); 
+        auto payload = protocol::resolveCommand( newFrame.body, replyMessage ); 
         
         if( payload )
         {

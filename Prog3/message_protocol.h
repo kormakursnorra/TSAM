@@ -52,5 +52,5 @@ namespace protocol
 
     size_t findNextFrameStart( const std::string_view &message );
 
-    std::optional< Payload > resolveCommand( const std::string_view &command );
+    std::optional< Payload > resolveCommand( const std::string_view &command, std::string &errMsg );
 };

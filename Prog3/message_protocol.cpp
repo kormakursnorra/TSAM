@@ -32,8 +32,8 @@ std::string createFrame(const std::string_view& message)
 }
 
 
-Frame parseMessage( const std::string_view &message )
-{    
+Frame parseMessage( const std::string_view &message, std::string &errMsg )
+{   
     if( message.empty() )
     {
         return { FrameStatus::Incomplete, 0, "" };
@@ -118,13 +118,15 @@ constexpr std::string_view nextField( const std::string_view &body, size_t& star
     return field;
 }
 
-std::optional< Payload > resolveCommand( const std::string_view &body )
+std::optional< Payload > resolveCommand( const std::string_view &body, std::string &errMsg )
 {
     if( body.empty() )
     {
+        errMsg = "command body is empty";
         return std::nullopt;
     }
 
+    uint8_t count = 0;
     size_t pos = 0;
     std::string_view name = nextField( body, pos );
 
@@ -132,8 +134,10 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
     {
         auto sender = nextField( body, pos );
         auto recipient = nextField( body, pos );
-        if( sender.empty() || recipient.empty() )
+
+        if( pos > body.size() || sender.empty() || recipient.empty() )
         {
+            errMsg = "Missing sender and/or recipient";
             return std::nullopt;
         }
 
@@ -141,10 +145,13 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
         auto contents = body.substr( contentsStart );
         if( contents.empty() )
         {
+            errMsg = "Missing message contents";
             return std::nullopt;
         }
 
-        return SendMsg{ std::string( sender ), std::string( recipient ), std::string( contents ) };
+        return SendMsg{ std::string( sender ),
+                        std::string( recipient ), 
+                        std::string( contents ) };
     }
 
     if( name == "GETMSG" )
@@ -152,6 +159,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
         auto username = nextField( body, pos );
         if( username.empty() )
         {
+            errMsg = "Missing username";
             return std::nullopt;
         }
         return GetMsg{ std::string( username ) };
@@ -159,9 +167,15 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
 
     if( name == "STATUSREQ" )
     {
+        if( !nextField( body, pos ).empty() )
+        {
+            errMsg = "STATUSREQ must have empty body";
+            return std::nullopt;
+        }
         return StatusReq{};
     }
 
+    errMsg = "ERROR, Unknown command";
     return std::nullopt;
 }
 
