@@ -73,7 +73,7 @@ Frame parseMessage( const std::string_view &message )
         return { FrameStatus::Malformed, 0, "" };
     }
 
-    if( message.size() < length || message.size() > length  )
+    if( message.size() < length )
     {
         return { FrameStatus::Incomplete, 0, "" };
     }
