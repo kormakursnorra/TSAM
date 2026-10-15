@@ -1,4 +1,5 @@
 #include "message_protocol.h"
+#include "logger.h"
 
 #include <netinet/in.h>
 #include <ratio>
@@ -41,19 +42,22 @@ Frame parseMessage( const std::string_view &message, std::string &errMsg )
 
     if( message[0] != SOH )
     {
-        std::cerr << "First character NOT <SOH> (0x01)" << std::endl;
+        logger::logToFile( { logger::LogLevel::ERROR,
+                                   "First character NOT <SOH> (0x01)" } );
         return { FrameStatus::Malformed, 0, "" };
     }
     
     if( message.size() < HEADER_SIZE )
     {
-        std::cerr << "Incomplete message (message < HEADER_SIZE)" << std::endl;
+        logger::logToFile( { logger::LogLevel::WARNING,
+                                   "Incomplete message (message < HEADER_SIZE)" } );
         return { FrameStatus::Incomplete, 0, "" };
     }
     
     if ( message[3] != STX ) 
     {
-        std::cerr << "Missing character <STX> (0x02)" << std::endl;
+        logger::logToFile( { logger::LogLevel::ERROR,
+                                   "Missing character <STX> (0x02)" } );
         return { FrameStatus::Malformed, 0, "" };
     }
     
@@ -66,19 +70,22 @@ Frame parseMessage( const std::string_view &message, std::string &errMsg )
 
     if( length < MIN_FRAME || length > MAX_FRAME )
     {
-        std::cerr << "Value of <length> not within MIN_FRAME or MAX_FRAME" << std::endl;
+        logger::logToFile( { logger::LogLevel::ERROR, 
+                                   "Value of <length> not within MIN_FRAME or MAX_FRAME" } );
         return { FrameStatus::Malformed, 0, "" };
     }
 
     if( message.size() < length || length > message.size() )
     {
-        std::cerr << "Size of buffer not the same as <length>" << std::endl;
+        logger::logToFile( { logger::LogLevel::WARNING, 
+                                   "Size of buffer not the same as <length>" } );
         return { FrameStatus::Incomplete, 0, "" };
     }
 
     if( message[ length - 1 ] != ETX )
     {
-        std::cerr << "Last character NOT <ETX> (0x03)" << std::endl;
+        logger::logToFile( { logger::LogLevel::ERROR, 
+                                   "Last character NOT <ETX> (0x03)" } );
         return { FrameStatus::Malformed, 0, "" };
     } 
     
@@ -118,11 +125,12 @@ constexpr std::string_view nextField( const std::string_view &body, size_t& star
     return field;
 }
 
-std::optional< Payload > resolveCommand( const std::string_view &body, std::string &errMsg )
+std::optional< Payload > resolveCommand( const std::string_view &body, struct logger::Log &log )
 {
     if( body.empty() )
     {
-        errMsg = "command body is empty";
+        log = { logger::LogLevel::WARNING, 
+                  "Command body is empty" };
         return std::nullopt;
     }
 
@@ -135,9 +143,10 @@ std::optional< Payload > resolveCommand( const std::string_view &body, std::stri
         auto sender = nextField( body, pos );
         auto recipient = nextField( body, pos );
 
-        if( pos > body.size() || sender.empty() || recipient.empty() )
+        if( sender.empty() || recipient.empty() )
         {
-            errMsg = "Missing sender and/or recipient";
+            log = { logger::LogLevel::WARNING, 
+                      "Missing sender and/or recipient" };
             return std::nullopt;
         }
 
@@ -145,7 +154,8 @@ std::optional< Payload > resolveCommand( const std::string_view &body, std::stri
         auto contents = body.substr( contentsStart );
         if( contents.empty() )
         {
-            errMsg = "Missing message contents";
+            log = { logger::LogLevel::WARNING, 
+                      "Missing message contents" };
             return std::nullopt;
         }
 
@@ -159,7 +169,8 @@ std::optional< Payload > resolveCommand( const std::string_view &body, std::stri
         auto username = nextField( body, pos );
         if( username.empty() )
         {
-            errMsg = "Missing username";
+            log = { logger::LogLevel::WARNING, 
+                      "Missing username" };
             return std::nullopt;
         }
         return GetMsg{ std::string( username ) };
@@ -169,13 +180,15 @@ std::optional< Payload > resolveCommand( const std::string_view &body, std::stri
     {
         if( !nextField( body, pos ).empty() )
         {
-            errMsg = "STATUSREQ must have empty body";
+            log = { logger::LogLevel::WARNING, 
+                      "STATUSREQ must have empty body" };
             return std::nullopt;
         }
         return StatusReq{};
     }
 
-    errMsg = "ERROR, Unknown command";
+    log = { logger::LogLevel::ERROR, 
+              "Unknown command" };
     return std::nullopt;
 }
 

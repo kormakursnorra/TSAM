@@ -1,4 +1,5 @@
 #include "tsamserver.h"
+#include "logger.h"
 
 #include "message_protocol.h"
 #include <algorithm>
@@ -6,7 +7,9 @@
 #include <charconv>
 #include <iostream>
 #include <netinet/in.h>
+#include <ostream>
 #include <string>
+#include <system_error>
 #include <variant>
 
 
@@ -19,13 +22,13 @@ int open_socket( int portnum )
 #ifdef __APPLE__     
     if( ( sock = socket(AF_INET, SOCK_STREAM, 0) ) < 0 )
     {
-        perror( "Failed to open socket" );
+        logger::logToFile( { logger::LogLevel::ERROR, "Failed to open socket" } );
         return -1;
     }
 #else
     if( ( sock = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 ) ) < 0 )
     {
-        perror( "Failed to open socket" );
+        logger::logToFile( { logger::LogLevel::ERROR, "Failed to open socket" } );
         return -1;
     }
 #endif
@@ -35,14 +38,14 @@ int open_socket( int portnum )
 
     if(setsockopt( sock, SOL_SOCKET, SO_REUSEADDR, &set, sizeof( set )) < 0 )
     {
-       perror( "Failed to set SO_REUSEADDR:" );
+       logger::logToFile( { logger::LogLevel::ERROR, "Failed to set SO_REUSEADDR" } );
     }
     set = 1;
 
 #ifdef __APPLE__     
     if( setsockopt( sock, SOL_SOCKET, SOCK_NONBLOCK | SO_NOSIGPIPE, &set, sizeof( set ) ) < 0 )
     {
-      perror( "Failed to set SOCK_NOBBLOCK" );
+      logger::logToFile( { logger::LogLevel::ERROR, "Failed to set SOCK_NOBBLOCK" } );
     }
 #endif
     memset( &sk_addr, 0, sizeof( sk_addr ) );
@@ -55,11 +58,14 @@ int open_socket( int portnum )
 
     if( bind( sock, ( struct sockaddr * )&sk_addr, sizeof( sk_addr )) < 0)
     {
-       perror( "Failed to bind to socket:" );
+       logger::logToFile( { logger::LogLevel::ERROR, 
+                                  "Failed to bind to socket: " + std::to_string( sock ) } );
        return -1;
     }
     else
     {
+       logger::logToFile( { logger::LogLevel::INFO, 
+                                  "Binded to sock: " + std::to_string( sock ) } ); 
        return ( sock );
     }
 
@@ -68,10 +74,11 @@ int open_socket( int portnum )
 
 void closeClient( int clientSocket, std::vector< struct pollfd > *fds )
 {
-    printf( "Client closed connection: %d\n", clientSocket );
+    logger::logToFile( { logger::LogLevel::ERROR, 
+                               "Client closed connection: " + std::to_string( clientSocket ) } );
 
     close( clientSocket );      
-
+ 
     // Find and remove this socket's entry from the list of fds polled.
     auto fdIt = std::find_if( fds->begin(), fds->end(), 
                     [ clientSocket ]( const struct pollfd &pfd )
@@ -102,13 +109,14 @@ int sendMessage( int clientSock, const std::string_view &replyMsg )
             {
                 continue;
             }
-            std::cerr << "Error occured when sending" << std::endl; 
+
+            logger::logToFile( { logger::LogLevel::ERROR, "Error occured when sending" } );
             return -1;
         }
 
-        if( bytesSent == 0 )        // client is gone
+        if( bytesSent == 0 ) // client is gone
         {
-            std::cerr << "No response from client" << std::endl; 
+            logger::logToFile( { logger::LogLevel::ERROR, "No response from client" } ); 
             return -1;
         }
 
@@ -120,22 +128,22 @@ int sendMessage( int clientSock, const std::string_view &replyMsg )
 }
 
 
-std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxes )
+struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxes )
 {
     if( auto *command = std::get_if< protocol::SendMsg >( &payload ) )
     {
         
         auto &clientBox = mailBoxes[ command->recipient ];
         clientBox.push_back( command->sender + "," + command->contents );
-        return "Message sent";
+        return { logger::LogLevel::INFO, "Message sent" };
     }
     
     if( auto *command = std::get_if< protocol::GetMsg >( &payload ) )
     {
         auto it = mailBoxes.find( command->username );
         if( it == mailBoxes.end() )
-        {
-            return "Couldn't find user" + command->username;
+        { 
+            return { logger::LogLevel::WARNING, "Couldn't find user: " + command->username };
         }
         
         auto &clientBox = it->second;
@@ -147,7 +155,7 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
             mailBoxes.erase( it );
         }
         
-        return msg;
+        return { logger::LogLevel::INFO, msg };
 
     }
 
@@ -155,7 +163,7 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
     {
         if( mailBoxes.empty() )
         {
-            return "EMPTY";
+            return { logger::LogLevel::WARNING, "EMPTY" };
         }
 
         std::string response;
@@ -168,14 +176,14 @@ std::string handleCommand( const protocol::Payload &payload, Mailboxes &mailBoxe
             response += username + ':' + std::to_string( box.size() );
         }
         
-        if( response.size() == protocol::MAX_FRAME )
+        if( response.size() > protocol::MAX_FRAME )
         {
-            return "Size of reply is equal to or exceeds MAX_FRAME";
+            return { logger::LogLevel::WARNING, "Size of reply is equal to or exceeds MAX_FRAME" };
         }
-        return response;
+        return { logger::LogLevel::INFO, response };
     }
 
-    return "UNKNOWN";
+    return { logger::LogLevel::ERROR, "UNKNOWN" };
 }
 
 
@@ -189,14 +197,14 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
 
     if( clientSock < 0 )
     {
-        std::cerr << "Failed to accept new client" << std::endl;
+        logger::logToFile( { logger::LogLevel::ERROR, "Failed to accept new client" } ); 
         return -1;
     }
 
     struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
     if ( setsockopt(clientSock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0 )
     {
-        std::cerr << "Error setting socket option to SO_SNDTIMEO" << std::endl;
+        logger::logToFile( { logger::LogLevel::ERROR, "Error setting socket option to SO_SNDTIMEO" } ); 
         return -1;
     }
 
@@ -206,8 +214,11 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     // Create a new client to store information. Re-use the record for this socket if we have seen it
     // before, so we don't leak a Client every time someone disconnects and reconnects.
     clients.insert_or_assign( clientSock, Client( clientSock ) );
-    std::cout << "Client connected: " << clientSock << " from " 
-            << inet_ntoa( client.sin_addr ) << ":"  << ntohs( client.sin_port ) << std::endl;
+
+    std::string logMsg = "Client connected: " + std::to_string( clientSock ) + " from " 
+            + inet_ntoa( client.sin_addr ) + ":"  + std::to_string( ntohs( client.sin_port ) ); 
+
+    logger::logToFile( { logger::LogLevel::INFO, logMsg } ); 
     return 0;
     
 }
@@ -218,16 +229,20 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
     ssize_t bytesReceieved = recv(clientSock, buffer, protocol::MAX_FRAME, MSG_DONTWAIT);
     if( bytesReceieved < 0 )
     {
-        if( errno == EAGAIN || errno == EINTR )
+        if( errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR )
         {
-            std::cerr << "recv interrupted by a signal or client unavailable" << std::endl;
+            logger::logToFile( { logger::LogLevel::ERROR,
+                                      "recv failed on sock " + std::to_string( clientSock ) 
+                                      + ": " + strerror( errno ) } ); 
             return 0;
         }
     }
     
     if( bytesReceieved == 0 )
     {
-        std::cerr << "Connection closed for clientSock: " << clientSock << std::endl;
+        logger::logToFile( { logger::LogLevel::INFO, 
+                                   "Connection closed for clientSock: " 
+                                   + std::to_string( clientSock ) } ); 
         return 1;    
     }
     
@@ -235,41 +250,40 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
     
     while( true ) 
     {
-        std::string replyMessage;
         auto newFrame = protocol::parseMessage( client.inbox );
         
         if( newFrame.status == protocol::FrameStatus::Incomplete )
         {
-            
             break;
         }
         
         if ( newFrame.status == protocol::FrameStatus::Malformed )
         {
             size_t skip = protocol::findNextFrameStart( client.inbox );
-            std::cerr << "Malformed input, discarding " << skip << " bytes\n";
+            logger::logToFile( { logger::LogLevel::WARNING, 
+                                       "Malformed input, discarding " 
+                                       + std::to_string( skip ) + " bytes" } ); 
             client.inbox.erase( 0, skip );
             continue;
         }
 
-        std::cout << "Message size: " << client.inbox.size() << std::endl;
-        std::cout << "Message: " << client.inbox << ", received from client: " << client.sock << std::endl;
+        
+        logger::logToFile( { logger::LogLevel::INFO, 
+                                   "Received from sock: " + std::to_string( client.sock ) 
+                                   + std::string( newFrame.body )  } ); 
 
         // We need to check what kind of command is being sent.
-        
-        auto payload = protocol::resolveCommand( newFrame.body, replyMessage ); 
+        struct logger::Log result;
+        auto payload = protocol::resolveCommand( newFrame.body, result ); 
         
         if( payload )
         {
-            replyMessage = handleCommand( *payload, mailBoxes );
+            result = handleCommand( *payload, mailBoxes );
         }
-        else
-        {
-            replyMessage = "ERROR: Unknown command";
-        }
-        
+       
+        logger::logToFile( { result.logLevel, result.logMsg } );
         client.inbox.erase( 0, newFrame.frameLen );
-        if( sendMessage( client.sock, replyMessage ) < 0 )
+        if( sendMessage( client.sock, result.logMsg ) < 0 )
         {
             return 1;
         }
@@ -285,10 +299,16 @@ int main( int argc, char* argv[] )
     
     if( argc != 2 )
     {
-        perror( "Missing argument <ip port>\n" );
-        exit( 1 );   
+        std::cerr << "Missing argument <ip port>" << std::endl;
+        return 1;   
     }
     
+    if( !logger::logInit( "server_" ) )
+    {
+        std::cerr << "Error opening log file" << std::endl;
+        return 1;
+    }
+
     int listenPort = 0;
     int listenSock = -1;
 
@@ -297,24 +317,27 @@ int main( int argc, char* argv[] )
 
     if( result.ec != std::errc() )
     {
-        std::cerr << "Bad argument error <ip port>" << std::endl;
-        exit( 1 );
+        logger::logToFile( { logger::LogLevel::ERROR, "Bad argument error <ip port>" } );
+        return 1;
     }
 
     // Open socket to listen to, if it fails exit with status 1
     if ( ( listenSock = open_socket( listenPort ) ) < 0 )
     {
-        exit( 1 );
+        return 1;
     }
 
-    std::cout << "Server is running on port " << listenPort << "!" << std::endl; 
+    logger::logToFile( { logger::LogLevel::INFO, 
+                               "Server is running on port " 
+                               + std::to_string( listenPort ) + "!" } ); 
 
     PolledFds fds;     
 
     if( listen(listenSock, BACKLOG) < 0 )
     {
-        std::cerr << "Listen failed on port: " << argv[1] << std::endl;
-        exit( 1 );
+        logger::logToFile( { logger::LogLevel::ERROR, 
+                                   "Listen failed on port: " + std::string( argv[1] ) } );
+        return 1;
     }
     else 
     {
@@ -339,7 +362,7 @@ int main( int argc, char* argv[] )
                 continue;
             }
             
-            std::cerr << "Poll failed - Closing down" << std::endl;
+            logger::logToFile( { logger::LogLevel::ERROR, "Poll failed - Closing down" } );
             break;
         }
 
@@ -399,6 +422,8 @@ int main( int argc, char* argv[] )
 
     }
 
+    logger::logToFile( { logger::LogLevel::INFO, "Closing server..." } );
+    logger::closeLog();
     close( listenSock );
     return 0;
 }

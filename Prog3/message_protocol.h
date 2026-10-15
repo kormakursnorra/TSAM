@@ -1,5 +1,7 @@
 #pragma once
 
+#include "logger.h"
+
 #include <string_view>
 #include <optional>
 #include <variant>
@@ -52,5 +54,5 @@ namespace protocol
 
     size_t findNextFrameStart( const std::string_view &message );
 
-    std::optional< Payload > resolveCommand( const std::string_view &command, std::string &errMsg );
+    std::optional< Payload > resolveCommand( const std::string_view &command, struct logger::Log &log );
 };

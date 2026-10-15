@@ -4,12 +4,14 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
-#include <cstdint>
-#include <string>
 #include <fstream>
+#include <string>
+#include <ctime>
 
-std::ofstream logFile;
+namespace logger 
+{
 
+static std::ofstream logFile;
 
 std::string getTimestamp()
 {
@@ -28,33 +30,61 @@ std::string getTimestamp()
     return oss.str();
 }
 
-bool logInit( const std::string &path )
+inline const char *levelName( LogLevel level )
 {
+    switch( level )
+    {
+        case LogLevel::INFO:    return "[ INFO ] ";
+        case LogLevel::WARNING: return "[ WARNING ] ";
+        case LogLevel::ERROR:   return "[ ERROR ] ";
+    }
+    return "[ ? ] ";
+};
+
+
+std::string Log::format() const
+{
+    return "[ " + logTime + " ] " + levelName( logLevel ) + logMsg;
+}
+
+
+
+bool logInit( const std::string &name )
+{
+    std::string path = name + getTimestamp() + ".log";
     logFile.open( path.c_str(), std::ios::out | std::ios::app );
-    logFile.exceptions( std::ios::failbit );
+    if( logFile.is_open() )
+    {
+        logFile.exceptions( std::ios::failbit );
+    }
     return static_cast< bool >( logFile );    
 }
 
 
-int logToFile( const std::string &logMsg )
+void logToFile( const struct Log &log )
 {
-    std::string logLine  = "[ " + getTimestamp() + " ] " + logMsg;
     if( logFile )
     {
         try
         {
-            logFile << logLine << '\n' << std::flush;
+            logFile << log.format() << std::endl << std::flush;
         }
         catch( const std::exception & ex )
         {
-            std::cerr << "Could not write to log file: " << ex.what() << std::endl;;
+            std::cerr << "Could not write to log file: " << ex.what() << std::endl;
         }
     }
-    
-    std::cerr << logLine << '\n'; 
+
+    if( log.logLevel == LogLevel::ERROR )
+    {
+        std::cerr << log.format() << std::endl;
+    }
+    else {
+        std::cout << log.format() << std::endl;    
+    }
 }
 
-void logEnd()
+void closeLog()
 {
     try 
     {
@@ -66,3 +96,5 @@ void logEnd()
     }
     
 }
+
+};

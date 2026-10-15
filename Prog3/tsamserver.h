@@ -63,7 +63,7 @@ void closeClient( int clientSocket, PolledFds *fds );
 
 int sendMessage( int clientSock, const std::string_view &replyMsg );
 
-std::string handleCommand( const protocol::Payload &payload, Mailboxes &boxes  );
+struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &boxes  );
 
 /*
 Creates a new instance of Client and adds it to the list
