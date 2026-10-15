@@ -79,6 +79,7 @@ void logToFile( const struct Log &log )
         }
     }
 
+    // Info and Warning logs shouldn't be treated as errors.
     if( log.logLevel == LogLevel::ERROR )
     {
         std::cerr << log.format() << std::endl;

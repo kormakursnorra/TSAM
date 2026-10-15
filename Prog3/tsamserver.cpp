@@ -115,6 +115,7 @@ int sendMessage( int clientSock, const std::string_view &replyMsg )
         {
             if( errno == EINTR )
             {
+                // Client might still be connected, so try sending again
                 continue;
             }
 
@@ -275,6 +276,7 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
         
         if( newFrame.status == protocol::FrameStatus::Incomplete )
         {
+            // More bytes might be incoming so try again
             break;
         }
         
@@ -326,6 +328,8 @@ int main( int argc, char* argv[] )
         return 1;   
     }
 
+    // This is just for the optional parameter of allowing the current date to be added the 
+    // log file name.
     if( argc > 2 && argc != 3 )
     {
         std::cerr << "Arguments allowed: <port><logDate>" << std::endl;
@@ -346,7 +350,7 @@ int main( int argc, char* argv[] )
 
     if( result.ec != std::errc() )
     {
-        logger::logToFile( { logger::LogLevel::ERROR, "Bad argument error <ip port>" } );
+        logger::logToFile( { logger::LogLevel::ERROR, "Bad argument error <port>" } );
         return 1;
     }
 

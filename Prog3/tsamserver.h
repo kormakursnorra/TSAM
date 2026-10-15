@@ -25,6 +25,9 @@
 
 #define BACKLOG  5  
 
+/*
+ * Wrapper for a connected clients data.  
+ */
 struct Client
 {
 public:
@@ -55,13 +58,27 @@ Closes a connection between a specified client and server
 */
 void closeClient( int clientSocket, PolledFds *fds );
 
+/*
+ * Sends a reply message to a specified client. 
+ */
 int sendMessage( int clientSock, const std::string_view &replyMsg );
 
+/*
+ * Unpacks the Payload variant (SendMsg, GetMsg, StatusReq) and takes the appropriate action:
+ * If SendMsg   -> Add the given message to the recipients "mailbox".
+ * If GetMsg    -> Find the user and return their oldest message.
+ * If StatusReq -> Return the number of messages each user has. 
+ */
 struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &boxes  );
 
 /*
-Creates a new instance of Client and adds it to the list
+ * Creates a new client socket and waits for connection to happen. If a client connects, add 
+ * it to the list of other clients (ClientLookup) and their sockets (PolledFds). 
 */
 int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds ); 
 
+/*
+ * Waits to receive a message from a specified client. On reception, verifies and unpack the 
+ * given message before sending a reply message. 
+ */
 int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &boxes );

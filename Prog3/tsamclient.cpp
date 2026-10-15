@@ -40,6 +40,7 @@ bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
         {
             if( errno == EINTR )
             {
+                // Continue since client might still be connected
                 continue;
             }
             
@@ -143,6 +144,7 @@ int main(int argc, char* argv[])
             ssize_t n = send( sock, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL );
             if (n < 0 && errno == EINTR)
             {
+                // If the send failed try again (might be server issue) 
                 continue;
             }
 
