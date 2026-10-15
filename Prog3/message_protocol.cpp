@@ -70,15 +70,11 @@ Frame parseMessage( const std::string_view &message )
 
     if( length < MIN_FRAME || length > MAX_FRAME )
     {
-        logger::logToFile( { logger::LogLevel::ERROR, 
-                                   "Value of <length> not within MIN_FRAME or MAX_FRAME" } );
         return { FrameStatus::Malformed, 0, "" };
     }
 
     if( message.size() < length || length > message.size() )
     {
-        logger::logToFile( { logger::LogLevel::WARNING, 
-                                   "Size of message not the same as <length>" } );
         return { FrameStatus::Incomplete, 0, "" };
     }
 

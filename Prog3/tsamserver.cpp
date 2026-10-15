@@ -14,6 +14,7 @@
 #include <cerrno>
 
 
+/* Sets non-blocking on socket */
 static bool setNonBlocking( int fd )
 {
     int flags = fcntl( fd, F_GETFL, 0 );
@@ -185,7 +186,7 @@ struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &m
         
         if( response.size() > protocol::MAX_COMMAND )
         {
-            return { logger::LogLevel::WARNING, "Size of reply is equal to or exceeds MAX_FRAME" };
+            return { logger::LogLevel::WARNING, "Size of reply is equal to or exceeds maximum" };
         }
         return { logger::LogLevel::INFO, response };
     }
@@ -205,7 +206,6 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     if( clientSock < 0 )
     {
         logger::logToFile( { logger::LogLevel::ERROR, "Failed to accept new client" } ); 
-        close( clientSock );
         return -1;
     }
 
@@ -290,7 +290,7 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
 
         
         logger::logToFile( { logger::LogLevel::INFO, 
-                                   "Received from sock: " + std::to_string( client.sock ) 
+                                   "Received from sock " + std::to_string( client.sock ) 
                                    + ": " + std::string( newFrame.body )  } ); 
 
         // We need to check what kind of command is being sent.

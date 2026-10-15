@@ -45,9 +45,6 @@ using ClientLookup = std::map< int, Client >;
 
 using PolledFds = std::vector< struct pollfd >;
 
-/* Sets non-blocking on socket */
-static bool setNonBlocking( int fd );
-
 /* 
 Opens a new socket for a specified port. Returns the socket or -1 on error.  
 */ 

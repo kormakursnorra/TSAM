@@ -1,5 +1,6 @@
 #include "message_protocol.h"
 #include "tsamclient.h"
+#include "logger.h"
 
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -18,49 +19,44 @@ bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
 
     while (true)
     {
-        // Receive more data from the server
-        ssize_t bytesReceived = recv(sock, temp, sizeof(temp), 0);
-
-        if (bytesReceived < 0 && errno == EINTR)
-        {
-            continue;
-        }
-
-        if (bytesReceived < 0)
-        {
-            perror("Error: recv");
-            return false;
-        }
-
-        if (bytesReceived == 0)
-        {
-            std::cerr << "Server disconnected\n";
-            return false;
-        }
-
-        receiveBuffer.append(
-            temp, static_cast< size_t >( bytesReceived )
-        );
-        
         auto frame = protocol::parseMessage( receiveBuffer );
         
         if( frame.status == protocol::FrameStatus::Incomplete )
         {
-            return false;
+            response = std::string( frame.body );    
+            receiveBuffer.erase( 0, frame.frameLen );
+            return true;
         }
         
         if ( frame.status == protocol::FrameStatus::Malformed )
         {
             size_t skip = protocol::findNextFrameStart( receiveBuffer );
-            std::cerr << "Malformed input, discarding " << skip << " bytes\n";
-            receiveBuffer.erase(0, skip);
+            std::cerr << "Malformed input, discarding " << skip << " bytes" << std::endl;
+            receiveBuffer.erase( 0, skip );
             continue;
         }
 
-        
-        response = frame.body;    
-        receiveBuffer.erase( 0, frame.frameLen );
-        return true;
+        // Receive more data from the server
+        ssize_t bytesReceived = recv(sock, temp, sizeof(temp), 0);
+
+        if (bytesReceived < 0)
+        {
+            if( errno == EINTR )
+            {
+                continue;
+            }
+            
+            std::cerr << "Error: recv " << std::endl;
+            return false;
+        }
+
+        if (bytesReceived == 0)
+        {
+            std::cerr << "Server disconnected" << std::endl;
+            return false;
+        }
+
+        receiveBuffer.append(temp, static_cast< size_t >( bytesReceived ) );
     }
 }
 
@@ -117,7 +113,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::cout << "Connected to server!";
+    std::cout << "Connected to server!" << std::endl;
     std:: string command;
     std::string receiveBuffer;
 
@@ -140,14 +136,14 @@ int main(int argc, char* argv[])
             continue;
         }
         std::string frame = protocol::createFrame( command );
-        std::cout << "[" << getTimestamp()<< "] Sending: " << command << "\n";
+        std::cout << "[" << logger::getTimestamp()<< "] Sending: " << command << "\n";
 
        
         size_t sent = 0;
 
         while (sent < frame.size())
         {
-            ssize_t n = send( sock, frame.data() + sent, frame.size() - sent, 0 );
+            ssize_t n = send( sock, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL );
             if (n < 0 && errno == EINTR)
             {
                 continue;
@@ -170,7 +166,7 @@ int main(int argc, char* argv[])
             break;
         }
         
-        std::cout << "[" << getTimestamp()<< "] Server responded: " << response << "\n";
+        std::cout << "[" << logger::getTimestamp()<< "] Server responded: " << response << "\n";
     }
     close(sock);
     return 0;
