@@ -12,7 +12,6 @@
 namespace protocol
 {
     constexpr size_t HEADER_SIZE = 4;     // Size of message header
-    constexpr size_t MIN_COMMAND = 5;     
     constexpr size_t MAX_COMMAND = 5000;  // Set capped size for commands (bytes)
     
     // Set minimum valid size for a single message (15 bytes)
@@ -25,14 +24,7 @@ namespace protocol
     inline constexpr char STX = 0x02; // start of text
     inline constexpr char ETX = 0x03; // end of text
 
-    // Message command headers
-    inline constexpr std::array<std::string_view, 3> commandNames = {
-        "SENDMSG", "GETMSG", "STATUSREQ"
-    };
-
     enum class FrameStatus { Ok, Incomplete, Malformed };
-
-    enum class CommandType { None = -1, SendMsg, GetMsg, StatusReq };
 
     struct SendMsg   { std::string sender; std::string recipient; std::string contents; };
     struct GetMsg    { std::string username; };

@@ -6,9 +6,6 @@
 #include <arpa/inet.h>
 #include <iostream>
 #include <unistd.h>
-#include <cstdint>
-#include <iomanip>
-#include <sstream>
 #include <string>
 #include <cerrno>
 #include <ctime>
@@ -21,7 +18,7 @@ bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
     {
         auto frame = protocol::parseMessage( receiveBuffer );
         
-        if( frame.status == protocol::FrameStatus::Incomplete )
+        if( frame.status == protocol::FrameStatus::Ok )
         {
             response = std::string( frame.body );    
             receiveBuffer.erase( 0, frame.frameLen );

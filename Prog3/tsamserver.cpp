@@ -320,13 +320,19 @@ int main( int argc, char* argv[] )
 {
     // Process command line argument/s
     
-    if( argc != 2 )
+    if( argc < 2 )
     {
-        std::cerr << "Missing argument <ip port>" << std::endl;
+        std::cerr << "Missing argument <port>" << std::endl;
         return 1;   
     }
+
+    if( argc > 2 && argc != 3 )
+    {
+        std::cerr << "Arguments allowed: <port><logDate>" << std::endl;
+        return 1;
+    }
     
-    if( !logger::logInit( "server_" ) )
+    if( !logger::logInit( "server", argv[2] ) )
     {
         std::cerr << "Error opening log file" << std::endl;
         return 1;

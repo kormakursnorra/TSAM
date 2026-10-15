@@ -19,12 +19,12 @@ struct Log
     Log() = default;
 
     Log( LogLevel level, const std::string &msg )
-        : logLevel( level ), logMsg( std::move( msg ) ), logTime( getTimestamp() ) {}
+        : logLevel( level ), logMsg( std::string( msg ) ), logTime( getTimestamp() ) {}
 
     std::string format() const;
 };
 
-bool logInit( const std::string &path );
+bool logInit( const std::string &path, bool logDate );
 
 void logToFile( const struct Log &log );
 

@@ -49,9 +49,13 @@ std::string Log::format() const
 
 
 
-bool logInit( const std::string &name )
+bool logInit( const std::string &name, bool logDate )
 {
-    std::string path = name + getTimestamp() + ".log";
+    if( logDate )
+    {
+        std::string path = name + "_" + getTimestamp() + ".log";
+    }
+    std::string path = name + ".log";
     logFile.open( path.c_str(), std::ios::out | std::ios::app );
     if( logFile.is_open() )
     {
