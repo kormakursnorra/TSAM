@@ -33,7 +33,7 @@ std::string createFrame(const std::string_view& message)
 }
 
 
-Frame parseMessage( const std::string_view &message, std::string &errMsg )
+Frame parseMessage( const std::string_view &message )
 {   
     if( message.empty() )
     {
@@ -78,7 +78,7 @@ Frame parseMessage( const std::string_view &message, std::string &errMsg )
     if( message.size() < length || length > message.size() )
     {
         logger::logToFile( { logger::LogLevel::WARNING, 
-                                   "Size of buffer not the same as <length>" } );
+                                   "Size of message not the same as <length>" } );
         return { FrameStatus::Incomplete, 0, "" };
     }
 
@@ -134,7 +134,6 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
         return std::nullopt;
     }
 
-    uint8_t count = 0;
     size_t pos = 0;
     std::string_view name = nextField( body, pos );
 
@@ -145,8 +144,13 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
 
         if( sender.empty() || recipient.empty() )
         {
-            log = { logger::LogLevel::WARNING, 
-                      "Missing sender and/or recipient" };
+            log = { logger::LogLevel::WARNING, "Missing sender and/or recipient" };
+            return std::nullopt;
+        }
+
+        if( pos > body.size() )
+        {
+            log = { logger::LogLevel::WARNING, "Missing message contents" };
             return std::nullopt;
         }
 
@@ -154,8 +158,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
         auto contents = body.substr( contentsStart );
         if( contents.empty() )
         {
-            log = { logger::LogLevel::WARNING, 
-                      "Missing message contents" };
+            log = { logger::LogLevel::WARNING, "Missing message contents" };
             return std::nullopt;
         }
 
@@ -169,8 +172,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
         auto username = nextField( body, pos );
         if( username.empty() )
         {
-            log = { logger::LogLevel::WARNING, 
-                      "Missing username" };
+            log = { logger::LogLevel::WARNING, "Missing username" };
             return std::nullopt;
         }
         return GetMsg{ std::string( username ) };
@@ -180,8 +182,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
     {
         if( !nextField( body, pos ).empty() )
         {
-            log = { logger::LogLevel::WARNING, 
-                      "STATUSREQ must have empty body" };
+            log = { logger::LogLevel::WARNING, "STATUSREQ must have empty body" };
             return std::nullopt;
         }
         return StatusReq{};

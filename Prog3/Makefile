@@ -1,20 +1,31 @@
-CXX := g++
-CXXFLAGS := --std=c++17 -Wall -Wextra -W -fsanitize=address -fsanitize=undefined
-TARGETS := tsamclient tsamserver
-OBJECTS := message_protocol.o tsamclient.o tsamserver.o
+CXX      := g++
+CXXFLAGS := -std=c++17 -Wall -Wextra -fsanitize=address,undefined -MMD -MP
+LDFLAGS  := -fsanitize=address,undefined
+OBJ_DIR  := obj
+TARGETS  := tsamclient tsamserver
+
+CLIENT_OBJS := $(addprefix $(OBJ_DIR)/, tsamclient.o message_protocol.o)
+SERVER_OBJS := $(addprefix $(OBJ_DIR)/, tsamserver.o message_protocol.o logger.o)
+OBJECTS     := $(sort $(CLIENT_OBJS) $(SERVER_OBJS))
 
 all: $(TARGETS)
+	@echo All targets built
 
-tsamclient: tsamclient.o message_protocol.o
-	$(CXX) $(CXXFLAGS) -o $@ $^
+tsamclient: $(CLIENT_OBJS)
+	$(CXX) $(LDFLAGS) -o $@ $^
 
-tsamserver: tsamserver.o message_protocol.o
-	$(CXX) $(CXXFLAGS) -o $@ $^
+tsamserver: $(SERVER_OBJS)
+	$(CXX) $(LDFLAGS) -o $@ $^
 
-%.o: %.cpp
+$(OBJ_DIR)/%.o: %.cpp | $(OBJ_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(OBJ_DIR):
+	mkdir -p $@
+
 clean:
-	rm -f $(OBJECTS) $(TARGETS)
+	rm -rf $(OBJ_DIR) $(TARGETS)
+
+-include $(OBJECTS:.o=.d)
 
 .PHONY: all clean

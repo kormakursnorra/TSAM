@@ -74,8 +74,9 @@ int open_socket( int portnum )
 
 void closeClient( int clientSocket, std::vector< struct pollfd > *fds )
 {
-    logger::logToFile( { logger::LogLevel::ERROR, 
-                               "Client closed connection: " + std::to_string( clientSocket ) } );
+    logger::logToFile( { logger::LogLevel::INFO, 
+                               "Client closed connection: " 
+                               + std::to_string( clientSocket ) } );
 
     close( clientSocket );      
  
@@ -163,7 +164,7 @@ struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &m
     {
         if( mailBoxes.empty() )
         {
-            return { logger::LogLevel::WARNING, "EMPTY" };
+            return { logger::LogLevel::INFO, "EMPTY" };
         }
 
         std::string response;
@@ -176,7 +177,7 @@ struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &m
             response += username + ':' + std::to_string( box.size() );
         }
         
-        if( response.size() > protocol::MAX_FRAME )
+        if( response.size() > protocol::MAX_COMMAND )
         {
             return { logger::LogLevel::WARNING, "Size of reply is equal to or exceeds MAX_FRAME" };
         }
@@ -198,6 +199,7 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     if( clientSock < 0 )
     {
         logger::logToFile( { logger::LogLevel::ERROR, "Failed to accept new client" } ); 
+        close( clientSock );
         return -1;
     }
 
@@ -205,6 +207,7 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     if ( setsockopt(clientSock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0 )
     {
         logger::logToFile( { logger::LogLevel::ERROR, "Error setting socket option to SO_SNDTIMEO" } ); 
+        close( clientSock );
         return -1;
     }
 
@@ -231,11 +234,12 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
     {
         if( errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR )
         {
-            logger::logToFile( { logger::LogLevel::ERROR,
-                                      "recv failed on sock " + std::to_string( clientSock ) 
-                                      + ": " + strerror( errno ) } ); 
             return 0;
         }
+        logger::logToFile( { logger::LogLevel::ERROR,
+                                  "recv failed on sock " + std::to_string( clientSock ) 
+                                  + ": " + strerror( errno ) } ); 
+        return 1;
     }
     
     if( bytesReceieved == 0 )
@@ -270,7 +274,7 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
         
         logger::logToFile( { logger::LogLevel::INFO, 
                                    "Received from sock: " + std::to_string( client.sock ) 
-                                   + std::string( newFrame.body )  } ); 
+                                   + ": " + std::string( newFrame.body )  } ); 
 
         // We need to check what kind of command is being sent.
         struct logger::Log result;
@@ -281,7 +285,9 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
             result = handleCommand( *payload, mailBoxes );
         }
        
-        logger::logToFile( { result.logLevel, result.logMsg } );
+        logger::logToFile( { result.logLevel, 
+                                   "Reply to sock " + std::to_string( client.sock ) 
+                                   + ": " + result.logMsg } );
         client.inbox.erase( 0, newFrame.frameLen );
         if( sendMessage( client.sock, result.logMsg ) < 0 )
         {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <utility>
 #include <string>
 
 namespace logger
@@ -11,7 +12,7 @@ enum class LogLevel { INFO, WARNING, ERROR };
 
 struct Log 
 {
-    LogLevel logLevel;
+    LogLevel logLevel = LogLevel::INFO;
     std::string logMsg;
     std::string logTime;
     
