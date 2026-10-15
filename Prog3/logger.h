@@ -38,7 +38,7 @@ struct Log
  * Opens/creates a file to log events during server operations. 
  * Returns true on success and false on error.  
  */
-bool logInit( const std::string &path, bool logDate );
+bool logInit( const std::string &name, bool logDate );
 
 /*
  * Writes to the log file and to stdcerr/stdcout the formatted information 

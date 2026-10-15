@@ -125,7 +125,7 @@ int sendMessage( int clientSock, const std::string_view &replyMsg )
 
         if( bytesSent == 0 ) // client is gone
         {
-            logger::logToFile( { logger::LogLevel::ERROR, "No response from client" } ); 
+            logger::logToFile( { logger::LogLevel::ERROR, "Failed to send a message." } ); 
             return -1;
         }
 
@@ -233,7 +233,7 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     fds.push_back( { clientSock, POLLIN, 0 } );
 
     // Create a new client to store information. Re-use the record for this socket if we have seen it
-    // before, so we don't leak a Client every time someone disconnects and reconnects.
+    // before so we don't use any stale record for a reused fd number.
     clients.insert_or_assign( clientSock, Client( clientSock ) );
 
     std::string logMsg = "Client connected: " + std::to_string( clientSock ) + " from " 
@@ -389,7 +389,7 @@ int main( int argc, char* argv[] )
 
         if( numFds < 0 )
         {
-            // if interrupted by singal, continue
+            // if interrupted by signal, continue
             if( errno == EINTR )
             {
                 continue;
@@ -411,9 +411,6 @@ int main( int argc, char* argv[] )
             {
                 continue;
             }
-
-            // Decrement the number of sockets waiting to be dealt with
-            numFds--;
         }
         
         char buffer[ protocol::MAX_FRAME ];

@@ -16,18 +16,18 @@ namespace protocol
     constexpr size_t HEADER_SIZE = 4;     // Size of message header
     constexpr size_t MAX_COMMAND = 5000;  // Set capped size for commands (bytes)
     
-    // Set minimum valid size for a single message (15 bytes)
+    // Set minimum valid size for a single message (5 bytes)
     constexpr size_t MIN_FRAME = HEADER_SIZE + 1; 
     // Set capped size for a single message (5005 bytes)
     constexpr size_t MAX_FRAME = HEADER_SIZE + MAX_COMMAND + 1; 
 
-    // Message delimeters.  
+    // Message delimiters.  
     inline constexpr char SOH = 0x01; // start of header
     inline constexpr char STX = 0x02; // start of text
     inline constexpr char ETX = 0x03; // end of text
 
     /* Enum values represent the state of a given message:
-     * Ok         -> Valid message sent. 
+     * Ok         -> Valid frame parsed. 
      * Incomplete -> Missing data.
      * Malformed  -> Not protocol formatted. 
      */
@@ -54,7 +54,7 @@ namespace protocol
     std::string createFrame( const std::string_view &message );
 
     /* 
-     * Validates the given message if its protocol compliant, i.e. missing fields, data misalignment etc.
+     * Validates the given message if its protocol compliant for frames.
      */
     Frame parseMessage( const std::string_view &message );
 

@@ -32,7 +32,6 @@ struct Client
 {
 public:
     int sock;           // socket of client connection
-    std::string name;   // Limit length of name of client's user
     std::string inbox;  // bytes received but not yet parsed
 
     Client( int socket ) : sock( socket ){} 
@@ -40,7 +39,7 @@ public:
     ~Client(){}     
 };
 
-// Receipients and their messages
+// Recipients and their messages
 using Mailboxes = std::map< std::string, std::deque< std::string > >;
 
 // Lookup table for per Client information
@@ -68,17 +67,19 @@ int sendMessage( int clientSock, const std::string_view &replyMsg );
  * If SendMsg   -> Add the given message to the recipients "mailbox".
  * If GetMsg    -> Find the user and return their oldest message.
  * If StatusReq -> Return the number of messages each user has. 
+ *
+ * Returns a Log containing the reply text (Log::logMsg).
  */
 struct logger::Log handleCommand( const protocol::Payload &payload, Mailboxes &boxes  );
 
 /*
- * Creates a new client socket and waits for connection to happen. If a client connects, add 
- * it to the list of other clients (ClientLookup) and their sockets (PolledFds). 
+ * Accepts a connection that poll() already reported, adding it to the list of clients and 
+ * their sockets (ClientLookup and PolledFds). Returns 0 on success and -1 on error.
 */
 int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds ); 
 
 /*
- * Waits to receive a message from a specified client. On reception, verifies and unpack the 
- * given message before sending a reply message. 
+ * On reception it processes every complete frame in the buffer (parsing and unpacking), 
+ * before sending a reply message. Returns non-zero when client disconnects
  */
 int receiveFromClient( int sock, char* buffer, Client &client, Mailboxes &boxes );
