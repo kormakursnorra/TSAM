@@ -1,0 +1,23 @@
+Connected to server!
+
+[2026-10-15 20:11:20] Sending: SENDMSG,kormakur,bergur,hello from Iceland
+[2026-10-15 20:11:20] Server responded: Message sent
+
+[2026-10-15 20:11:37] Sending: STATUSREQ
+[2026-10-15 20:11:37] Server responded: bergur:1
+
+[2026-10-15 20:11:54] Sending: SENDMSG,kormakur,kormakur, why am i talking to myself
+[2026-10-15 20:11:54] Server responded: Message sent
+
+[2026-10-15 20:12:03] Sending: GETMSG,kormakur
+[2026-10-15 20:12:03] Server responded: kormakur, why am i talking to myself
+
+[2026-10-15 20:12:13] Sending: sfdlskjds
+[2026-10-15 20:12:13] Server responded: Unknown command
+
+[2026-10-15 20:12:28] Sending: SENDMSG,
+[2026-10-15 20:12:28] Server responded: Missing sender and/or recipient
+
+[2026-10-15 20:12:35] Sending: Goodbye
+[2026-10-15 20:12:35] Server responded: Unknown command
+
