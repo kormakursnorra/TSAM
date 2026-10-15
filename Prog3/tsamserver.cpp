@@ -1,17 +1,28 @@
+#include "message_protocol.h"
 #include "tsamserver.h"
 #include "logger.h"
 
-#include "message_protocol.h"
+#include <netinet/in.h>
+#include <system_error>
 #include <algorithm>
-#include <cerrno>
 #include <charconv>
 #include <iostream>
-#include <netinet/in.h>
 #include <ostream>
-#include <string>
-#include <system_error>
 #include <variant>
+#include <fcntl.h>
+#include <string>
+#include <cerrno>
 
+
+static bool setNonBlocking( int fd )
+{
+    int flags = fcntl( fd, F_GETFL, 0 );
+    if( flags < 0 )
+    {
+        return false;
+    }
+    return fcntl( fd, F_SETFL, flags | O_NONBLOCK ) == 0;
+}
 
 int open_socket( int portnum )
 {
@@ -19,19 +30,20 @@ int open_socket( int portnum )
     int sock;                     // socket opened for this port
     int set = 1;                  // for setsockopt
 
-#ifdef __APPLE__     
+    
     if( ( sock = socket(AF_INET, SOCK_STREAM, 0) ) < 0 )
     {
         logger::logToFile( { logger::LogLevel::ERROR, "Failed to open socket" } );
         return -1;
     }
-#else
-    if( ( sock = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 ) ) < 0 )
+
+    if( !setNonBlocking( sock ) )
     {
-        logger::logToFile( { logger::LogLevel::ERROR, "Failed to open socket" } );
+        logger::logToFile( { logger::LogLevel::ERROR,
+                                    std::string( "Failed to set O_NONBLOCK: " ) + strerror( errno ) } );
+        close( sock );
         return -1;
     }
-#endif
 
     // Turn on SO_REUSEADDR to allow socket to be quickly reused after 
     // program exit.
@@ -42,12 +54,6 @@ int open_socket( int portnum )
     }
     set = 1;
 
-#ifdef __APPLE__     
-    if( setsockopt( sock, SOL_SOCKET, SOCK_NONBLOCK | SO_NOSIGPIPE, &set, sizeof( set ) ) < 0 )
-    {
-      logger::logToFile( { logger::LogLevel::ERROR, "Failed to set SOCK_NOBBLOCK" } );
-    }
-#endif
     memset( &sk_addr, 0, sizeof( sk_addr ) );
 
     sk_addr.sin_family      = AF_INET;
@@ -59,13 +65,13 @@ int open_socket( int portnum )
     if( bind( sock, ( struct sockaddr * )&sk_addr, sizeof( sk_addr )) < 0)
     {
        logger::logToFile( { logger::LogLevel::ERROR, 
-                                  "Failed to bind to socket: " + std::to_string( sock ) } );
+                                   "Failed to bind to socket: " + std::to_string( sock ) } );
        return -1;
     }
     else
     {
        logger::logToFile( { logger::LogLevel::INFO, 
-                                  "Binded to sock: " + std::to_string( sock ) } ); 
+                                   "Binded to sock: " + std::to_string( sock ) } ); 
        return ( sock );
     }
 
@@ -75,8 +81,8 @@ int open_socket( int portnum )
 void closeClient( int clientSocket, std::vector< struct pollfd > *fds )
 {
     logger::logToFile( { logger::LogLevel::INFO, 
-                               "Client closed connection: " 
-                               + std::to_string( clientSocket ) } );
+                                "Client closed connection: " + 
+                                std::to_string( clientSocket ) } );
 
     close( clientSocket );      
  
@@ -203,6 +209,17 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
         return -1;
     }
 
+#ifdef SO_NOSIGPIPE   // macOS/BSD only; Linux relies on MSG_NOSIGNAL in send()
+    int on = 1;
+    if( setsockopt( clientSock, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof( on ) ) < 0 )
+    {
+        logger::logToFile( { logger::LogLevel::ERROR,
+                             std::string( "Failed to set SO_NOSIGPIPE: " ) + strerror( errno ) } );
+        close( clientSock );
+        return -1;
+    }
+#endif
+
     struct timeval tv = { .tv_sec = 2, .tv_usec = 0 };
     if ( setsockopt(clientSock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0 )
     {
@@ -237,7 +254,7 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
             return 0;
         }
         logger::logToFile( { logger::LogLevel::ERROR,
-                                  "recv failed on sock " + std::to_string( clientSock ) 
+                                   "recv failed on sock " + std::to_string( clientSock ) 
                                   + ": " + strerror( errno ) } ); 
         return 1;
     }
@@ -265,8 +282,8 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
         {
             size_t skip = protocol::findNextFrameStart( client.inbox );
             logger::logToFile( { logger::LogLevel::WARNING, 
-                                       "Malformed input, discarding " 
-                                       + std::to_string( skip ) + " bytes" } ); 
+                                       "Malformed input, discarding " + 
+                                       std::to_string( skip ) + " bytes" } ); 
             client.inbox.erase( 0, skip );
             continue;
         }

@@ -23,12 +23,6 @@
 #include <list>
 #include <map>
 
-// fix SOCK_NONBLOCK for OSX
-#ifndef SOCK_NONBLOCK
-    #include <fcntl.h>
-    #define SOCK_NONBLOCK O_NONBLOCK
-#endif
-
 #define BACKLOG  5  
 
 struct Client
@@ -50,6 +44,9 @@ using Mailboxes = std::map< std::string, std::deque< std::string > >;
 using ClientLookup = std::map< int, Client >;
 
 using PolledFds = std::vector< struct pollfd >;
+
+/* Sets non-blocking on socket */
+static bool setNonBlocking( int fd );
 
 /* 
 Opens a new socket for a specified port. Returns the socket or -1 on error.  
