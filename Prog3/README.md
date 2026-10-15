@@ -15,7 +15,7 @@ are no third-party dependencies.
 
 ## Operating System
 
-Developed and tested on: **TODO: fill in, e.g. Ubuntu 24.04 (x86_64) and macOS 15**
+Developed and tested on: **Ubuntu 24.04 LTS (x86_64)**
 
 ## Building
 
