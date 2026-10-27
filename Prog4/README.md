@@ -1,4 +1,4 @@
-# Peer-to-Peer Server
+# Peer-to-Peer Server Network
 
 A simple TCP mail server (`tsamserver`) written in C++17. All networking uses the standard POSIX socket API; there
 are no third-party dependencies.
