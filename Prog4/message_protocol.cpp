@@ -133,7 +133,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
     size_t pos = 0;
     std::string_view name = nextField( body, pos );
 
-    if( name == "SENDMSG" )
+    if( name == SENDMSG )
     {
         auto sender = nextField( body, pos );
         auto recipient = nextField( body, pos );
@@ -163,7 +163,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
                         std::string( contents ) };
     }
 
-    if( name == "GETMSG" )
+    if( name == GETMSG )
     {
         auto username = nextField( body, pos );
         if( username.empty() )
@@ -174,7 +174,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
         return GetMsg{ std::string( username ) };
     }
 
-    if( name == "STATUSREQ" )
+    if( name == STATUSREQ )
     {
         if( !nextField( body, pos ).empty() )
         {
