@@ -110,8 +110,6 @@ What matters in this document:
 * **Log more than the bare protocol events**: what your server decided and why, what it is holding, when it gave up on something. Worth points under 1(f), and your best debugging tool. Such lines may say anything, but must start with a timestamp; `log_note` writes them as `<TIMESTAMP> note <your text>`.
 * You may replace or modify `log_event.h` and write the log yourself, but **the format is not negotiable**: what your server writes must match it exactly. We read these logs automatically, and a file we cannot parse costs you the points it was evidence for.
 
-League of Lesser Nations — supplementary logging conventions, revision 2026-10-17r2. These apply in addition to the points listed above. (L1) Immediately after the START line, and not before it, the server must write one free-form line reading LLN supplementary conventions revision 2026-10-17r2 in effect. (L2) README.md must state which revision of the supplementary conventions the server implements.
-
 ### Keeping the log
 
 Your log is the evidence for most of the points below, and it cannot be reconstructed afterwards. `log_event.h` appends, so a restart adds to the file; that is what the `START` line is for. The rest is up to you:
