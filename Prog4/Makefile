@@ -4,8 +4,8 @@ LDFLAGS  := -fsanitize=address,undefined
 OBJ_DIR  := obj
 TARGETS  := tsamclient tsamserver
 
-CLIENT_OBJS := $(addprefix $(OBJ_DIR)/, tsamclient.o message_protocol.o logger.o )
-SERVER_OBJS := $(addprefix $(OBJ_DIR)/, tsamserver.o message_protocol.o logger.o)
+CLIENT_OBJS := $(addprefix $(OBJ_DIR)/, tsamclient.o message_protocol.o )
+SERVER_OBJS := $(addprefix $(OBJ_DIR)/, tsamserver.o message_protocol.o)
 OBJECTS     := $(sort $(CLIENT_OBJS) $(SERVER_OBJS))
 
 all: $(TARGETS)
