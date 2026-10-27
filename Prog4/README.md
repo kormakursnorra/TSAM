@@ -1,8 +1,6 @@
-# Client-Server Messaging
+# Peer-to-Peer Server
 
-A simple TCP mail server (`tsamserver`) and command line client (`tsamclient`) written in C++17.
-Clients can leave messages for other users, fetch them one at a time, and ask the server which
-users currently have stored messages. All networking uses the standard POSIX socket API; there
+A simple TCP mail server (`tsamserver`) written in C++17. All networking uses the standard POSIX socket API; there
 are no third-party dependencies.
 
 ## Requirements
@@ -27,7 +25,7 @@ From the project directory run:
 make
 ```
 
-This builds both `tsamserver` and `tsamclient`. Object files are placed in `obj/`.
+This builds `tsamserver`. Object files are placed in `obj/`.
 To remove all build output:
 
 ```sh
@@ -37,8 +35,7 @@ make clean
 ### Compiling Directly
 
 ```sh
-g++ -std=c++17 -Wall -Wextra -o tsamserver tsamserver.cpp message_protocol.cpp logger.cpp
-g++ -std=c++17 -Wall -Wextra -o tsamclient tsamclient.cpp message_protocol.cpp logger.cpp
+g++ -std=c++17 -Wall -Wextra -o tsamserver tsamserver.cpp message_protocol.cpp
 ```
 
 ## Running
@@ -115,13 +112,13 @@ Every command and every reply is sent as one frame:
 <SOH><length><STX><command><ETX>
 ```
 
-| Field       | Size     | Value                                                      |
-| ----------- | -------- | ---------------------------------------------------------- |
-| `<SOH>`     | 1 byte   | `0x01`                                                     |
-| `<length>`  | 2 bytes  | Unsigned 16-bit, network byte order. Total frame length including the 5 framing bytes. |
-| `<STX>`     | 1 byte   | `0x02`                                                     |
-| `<command>` | 0 to 5000 bytes | The command text                                    |
-| `<ETX>`     | 1 byte   | `0x03`                                                     |
+| Field       | Size            | Value                                                                                  |
+| ----------- | --------------- | -------------------------------------------------------------------------------------- |
+| `<SOH>`     | 1 byte          | `0x01`                                                                                 |
+| `<length>`  | 2 bytes         | Unsigned 16-bit, network byte order. Total frame length including the 5 framing bytes. |
+| `<STX>`     | 1 byte          | `0x02`                                                                                 |
+| `<command>` | 0 to 5000 bytes | The command text                                                                       |
+| `<ETX>`     | 1 byte          | `0x03`                                                                                 |
 
 So a valid frame is between 5 and 5005 bytes long. Both the server and the client keep a
 per-connection receive buffer, because TCP may deliver a frame in several pieces or several
@@ -131,11 +128,11 @@ frames in one piece. A command is only processed once its whole frame has arrive
 
 Fields are separated by commas. Command names are case sensitive.
 
-| Command | Server behaviour | Reply |
-| ------- | ---------------- | ----- |
+| Command | Server behaviour      | Reply                                                                                                                                                           |
+| ------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SENDMSG,<from>,<to>,<message>` | Appends the message to the end of `<to>`'s mailbox. Everything after the third comma is the message, so the message itself may contain commas. | `Message sent` |
-| `GETMSG,<username>` | Removes and returns the **oldest** stored message for `<username>` (first in, first out). | `<from>,<message>`, or `Couldn't find user: <username>` if the user has no messages |
-| `STATUSREQ` | Lists every user that has at least one stored message. | `<user1>:<count1>,<user2>:<count2>,...` with no spaces, or exactly `EMPTY` if no messages are stored. Users are listed in alphabetical order. |
+| `GETMSG,<username>`             | Removes and returns the **oldest** stored message for `<username>` (first in, first out). | `<from>,<message>`, or `Couldn't find user: <username>` if the user has no messages |
+| `STATUSREQ`                     | Lists every user that has at least one stored message. | `<user1>:<count1>,<user2>:<count2>,...` with no spaces, or exactly `EMPTY` if no messages are stored. Users are listed in alphabetical order. |
 
 No additional commands are implemented.
 

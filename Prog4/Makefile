@@ -2,19 +2,15 @@ CXX      := g++
 CXXFLAGS := -std=c++17 -Wall -Wextra -fsanitize=address,undefined -MMD -MP
 LDFLAGS  := -fsanitize=address,undefined
 OBJ_DIR  := obj
-TARGETS  := tsamclient tsamserver
+TARGETS  := tsamserver
 
-CLIENT_OBJS := $(addprefix $(OBJ_DIR)/, tsamclient.o message_protocol.o logger.o )
-SERVER_OBJS := $(addprefix $(OBJ_DIR)/, tsamserver.o message_protocol.o logger.o)
-OBJECTS     := $(sort $(CLIENT_OBJS) $(SERVER_OBJS))
+OBJECTS := $(addprefix $(OBJ_DIR)/, tsamserver.o message_protocol.o log_event.o)
+OBJECTS := $(addprefix $(OBJ_DIR)/, tsamserver.o message_protocol.o log_event.o)
 
 all: $(TARGETS)
 	@echo All targets built
 
-tsamclient: $(CLIENT_OBJS)
-	$(CXX) $(LDFLAGS) -o $@ $^
-
-tsamserver: $(SERVER_OBJS)
+tsamserver: $(OBJECTS)
 	$(CXX) $(LDFLAGS) -o $@ $^
 
 $(OBJ_DIR)/%.o: %.cpp | $(OBJ_DIR)
