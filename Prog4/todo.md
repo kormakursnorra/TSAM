@@ -1,5 +1,11 @@
 # TODOs
 
+## Strategies
+
+Message Strategy: **Message Relay**
+
+Identification Strategy: `SERVERS,<server_list>` (include our server info at start)
+
 ## Needs Fixing
 
 ### **Server Replying**
@@ -54,4 +60,3 @@
 ### **Port Parsing**
 
 - [ ] Minor, `from_chars` accepts 4044abc as 4044 and doesn’t range-check.
-
