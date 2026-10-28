@@ -382,7 +382,7 @@ int main( int argc, char* argv[] )
     Mailboxes mailBoxes;
 
     while( true )
-    {
+    {   
         // Wait (indefinitely) until at least one of our sockets has
         // something to be read() on it.
         int numFds = poll( fds.data(), fds.size(), -1 );

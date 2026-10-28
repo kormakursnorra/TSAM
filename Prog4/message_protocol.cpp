@@ -15,7 +15,7 @@
 namespace protocol
 {
 
-std::string createFrame(const std::string_view& message)
+std::string createFrame( const std::string_view& message )
 {
     uint16_t len = static_cast< uint16_t >( message.size() + 5 ); 
     uint16_t netLen = htons(len);
@@ -42,8 +42,7 @@ Frame parseMessage( const std::string_view &message )
 
     if( message[0] != SOH )
     {
-        logger::logToFile( { logger::LogLevel::ERROR,
-                                   "First character NOT <SOH> (0x01)" } );
+        // TODO: Log here DROP?
         return { FrameStatus::Malformed, 0, "" };
     }
     
@@ -163,7 +162,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
                         std::string( contents ) };
     }
 
-    if( name == GETMSG )
+    if( name == GETMSGS )
     {
         auto username = nextField( body, pos );
         if( username.empty() )
