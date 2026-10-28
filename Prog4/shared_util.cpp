@@ -17,7 +17,7 @@ namespace util
             return -1;
         }
 
-        if( port < 4000 && port > 4200 )
+        if( port < 4000 || port > 4200 )
         {
             return -1;
         }
