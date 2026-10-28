@@ -46,6 +46,12 @@ namespace protocol
     /* Finds the start of the next frame from a given buffer. */
     size_t findNextFrameStart( const std::string_view &message );
 
+    /* Parses the given server list */
+    std::optional< Servers > parseServerList( const std::string_view &list );
+
+    /* Parses the given statusresp list */
+    std::optional< StatusResp > parseStatusRespList( const std::string_view &list );
+
     /* Validates a given command and if it follows the protocol command formats. */
     std::optional< Payload > resolveCommand( const std::string_view &command );
 };

@@ -47,11 +47,11 @@ Identification Strategy: `SERVERS,<server_list>` (include our server info at sta
 
 ### **Client**
 
-- [ ] The `Client` struct needs: IP and port (as strings/ints for log_event), a kind (unknown, our client, or peer server), the claimed group ID, the peer’s listening port if known, an outbound buffer, a last-seen time, and whether `HELO` has been exchanged.
+- [x] The `Client` struct needs: IP and port (as strings/ints for log_event), a kind (unknown, our client, or peer server), the claimed group ID, the peer’s listening port if known, an outbound buffer, a last-seen time, and whether `HELO` has been exchanged.
 
 ### **Command Set**
 
-- [ ] In `protocol`, the commands `HELO, SERVERS, KEEPALIVE, GETMSGS, STATUSRESP`, and the 4-field `SENDMSG` with a timestamp need to be implemented and handled. Stored message currently drops the timestamp entirely.
+- [x] In `protocol`, the commands `HELO, SERVERS, KEEPALIVE, GETMSGS, STATUSRESP`, and the 4-field `SENDMSG` with a timestamp need to be implemented and handled. Stored message currently drops the timestamp entirely.
 
 ### **`STATUSRESP` Prefix**
 
@@ -59,4 +59,4 @@ Identification Strategy: `SERVERS,<server_list>` (include our server info at sta
 
 ### **Port Parsing**
 
-- [ ] Minor, `from_chars` accepts 4044abc as 4044 and doesn’t range-check.
+- [x] Minor, `from_chars` accepts 4044abc as 4044 and doesn’t range-check.

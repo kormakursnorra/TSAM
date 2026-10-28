@@ -117,7 +117,7 @@ constexpr std::string_view nextField( const std::string_view &body, size_t& star
     return field;
 }
 
-std::optional< Servers > parseServer( const std::string_view &list )
+std::optional< Servers > parseServerList( const std::string_view &list )
 {
     if( list.empty() )
     {
@@ -196,7 +196,7 @@ std::optional< Servers > parseServer( const std::string_view &list )
     return result;
 };
 
-std::optional< StatusResp > parseStatusResp( const std::string_view &list )
+std::optional< StatusResp > parseStatusRespList( const std::string_view &list )
 {
     if( list.empty() )
     {
