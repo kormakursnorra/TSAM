@@ -1,19 +1,36 @@
 #include "message_protocol.h"
-#include "logger.h"
+#include "protocol_types.h"
 
 #include <netinet/in.h>
-#include <ratio>
 #include <string_view>
 #include <sys/types.h>
 #include <optional>
-#include <iostream>
-#include <ostream>
+#include <iomanip>
+#include <sstream>
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
 
 
 namespace protocol
 {
+
+std::string getTimestamp()
+{
+    std::time_t now = std::time(nullptr);
+
+    std::tm localTime{};
+
+    localtime_r(&now, &localTime);
+
+    std::ostringstream oss;
+
+    oss << std::put_time(
+        &localTime, "%Y-%m-%d %H:%M:%S"
+    );
+
+    return oss.str();
+}
 
 std::string createFrame( const std::string_view& message )
 {
@@ -42,21 +59,19 @@ Frame parseMessage( const std::string_view &message )
 
     if( message[0] != SOH )
     {
-        // TODO: Log here DROP?
+        // TODO: Log here: DROP
         return { FrameStatus::Malformed, 0, "" };
     }
     
     if( message.size() < HEADER_SIZE )
     {
-        logger::logToFile( { logger::LogLevel::WARNING,
-                                   "Incomplete message (message < HEADER_SIZE)" } );
+        // TODO: Log here: log_note
         return { FrameStatus::Incomplete, 0, "" };
     }
     
     if ( message[3] != STX ) 
     {
-        logger::logToFile( { logger::LogLevel::ERROR,
-                                   "Missing character <STX> (0x02)" } );
+        // TODO: Log here: DROP
         return { FrameStatus::Malformed, 0, "" };
     }
     
@@ -79,8 +94,7 @@ Frame parseMessage( const std::string_view &message )
 
     if( message[ length - 1 ] != ETX )
     {
-        logger::logToFile( { logger::LogLevel::ERROR, 
-                                   "Last character NOT <ETX> (0x03)" } );
+        // TODO: Log here: DROP
         return { FrameStatus::Malformed, 0, "" };
     } 
     
@@ -120,12 +134,11 @@ constexpr std::string_view nextField( const std::string_view &body, size_t& star
     return field;
 }
 
-std::optional< Payload > resolveCommand( const std::string_view &body, struct logger::Log &log )
+std::optional< Payload > resolveCommand( const std::string_view &body )
 {
     if( body.empty() )
     {
-        log = { logger::LogLevel::WARNING, 
-                  "Command body is empty" };
+        // TODO: Log here: log_note
         return std::nullopt;
     }
 
@@ -139,13 +152,13 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
 
         if( sender.empty() || recipient.empty() )
         {
-            log = { logger::LogLevel::WARNING, "Missing sender and/or recipient" };
+            // TODO: Log here: log_note
             return std::nullopt;
         }
 
         if( pos > body.size() )
         {
-            log = { logger::LogLevel::WARNING, "Missing message contents" };
+            // TODO: Log here: log_note
             return std::nullopt;
         }
 
@@ -153,7 +166,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
         auto contents = body.substr( contentsStart );
         if( contents.empty() )
         {
-            log = { logger::LogLevel::WARNING, "Missing message contents" };
+            // TODO: Log here: log_note
             return std::nullopt;
         }
 
@@ -167,7 +180,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
         auto username = nextField( body, pos );
         if( username.empty() )
         {
-            log = { logger::LogLevel::WARNING, "Missing username" };
+            // TODO: Log here: log_note
             return std::nullopt;
         }
         return GetMsg{ std::string( username ) };
@@ -177,14 +190,13 @@ std::optional< Payload > resolveCommand( const std::string_view &body, struct lo
     {
         if( !nextField( body, pos ).empty() )
         {
-            log = { logger::LogLevel::WARNING, "STATUSREQ must have empty body" };
+            // TODO: Log here: log_note
             return std::nullopt;
         }
         return StatusReq{};
     }
 
-    log = { logger::LogLevel::ERROR, 
-              "Unknown command" };
+    // TODO: Log here: DROP
     return std::nullopt;
 }
 

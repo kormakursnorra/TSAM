@@ -34,6 +34,9 @@ namespace protocol
     inline constexpr char STATUSREQ[]  = "STATUSREQ";
     inline constexpr char STATUSRESP[] = "STATUSRESP";
 
+    // Returns current timestamp
+    std::string getTimestamp();
+
     // TODO: Add groupId validation
     int validateGroupId( const std::string &groupID );
 

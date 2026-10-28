@@ -42,8 +42,8 @@ namespace protocol
 
     // Structs that represent/wrap the command types/data. 
 
-    /*
-     * Command Format: HELO,<FROM_GROUP_ID>.
+    /* 
+     * Command Format: HELO,<FROM_GROUP_ID>(,<PORT> possible additional).
      * Reply with the SERVERS response (below). This must be the first command each end 
      * sends on a connection: send it directly after connect() and accept().
      */
