@@ -25,7 +25,10 @@
 #include <list>
 #include <map>
 
-#define BACKLOG  5  
+#define BACKLOG 5
+#define TIMEOUT -1
+#define STORAGE_LIMIT 10   
+#define CONNECTION_LIMIT 8
 // TODO: Define caps and timeouts
 
 
