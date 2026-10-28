@@ -79,7 +79,7 @@ Frame parseMessage( const std::string_view &message )
     {
         // TODO: Log here: DROP
         return { FrameStatus::Malformed, 0, "" };
-    } 
+    }
     
     return Frame{
                 FrameStatus::Ok, 
@@ -291,7 +291,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
 
     if( name == SERVERS )
     {
-        auto servers = parseServer( body.substr( pos ) );
+        auto servers = parseServerList( body.substr( pos ) );
         if( !servers )
         {
             return std::nullopt;
@@ -379,7 +379,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
 
     if( name == STATUSRESP )
     {
-        auto statusresp = parseStatusResp( body.substr( pos ) );
+        auto statusresp = parseStatusRespList( body.substr( pos ) );
         if( !statusresp )
         {
             return std::nullopt;
