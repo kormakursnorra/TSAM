@@ -1,26 +1,19 @@
 #include "message_protocol.h"
 #include "protocol_types.h"
+#include "shared_util.h"
 
 #include <netinet/in.h>
 #include <string_view>
 #include <sys/types.h>
+#include <charconv>
 #include <optional>
-#include <iomanip>
-#include <sstream>
 #include <cstdint>
 #include <cstdio>
-#include <chrono>
 #include <ctime>
 
 
 namespace protocol
 {
-
-int64_t getTimestamp()
-{
-    const auto timestamp = std::chrono::system_clock::now();
-    return std::chrono::duration_cast<std::chrono::seconds>( timestamp.time_since_epoch()).count();
-}
 
 std::string createFrame( const std::string_view& message )
 {
@@ -124,6 +117,155 @@ constexpr std::string_view nextField( const std::string_view &body, size_t& star
     return field;
 }
 
+std::optional< Servers > parseServer( const std::string_view &list )
+{
+    if( list.empty() )
+    {
+        // TODO: Log here?
+        return std::nullopt;
+    }
+    
+    Servers result;
+    size_t start = 0;
+    
+    while( start < list.size() )
+    {
+        // Isolate single entry (';' seperated)
+        const size_t semicolon = list.find(';', start );
+        const size_t endPos = semicolon == std::string_view::npos 
+                                ? std::string_view::npos : semicolon - start;
+        const auto entry = list.substr( start, endPos );
+
+        // Handle sub-fields within entry. 
+        // Find all commas
+        const size_t firstComma = entry.find(',');
+        if( firstComma == std::string_view::npos )
+        {
+            // TODO: Log here?
+            return std::nullopt; 
+        }
+        const size_t secondComma = entry.find(',', firstComma + 1 );
+        if( secondComma == std::string_view::npos )
+        {
+            // TODO: Log here?
+            return std::nullopt;
+        }
+
+        // Isolate Group Id field.
+        const auto groupId = entry.substr( 0, firstComma );
+        if( groupId.empty() )
+        {
+            return std::nullopt;
+        }
+
+        // Isolate IP address field.
+        const auto ip = entry.substr( 
+            firstComma + 1, secondComma - firstComma - 1 );
+        
+        if( ip.empty() )
+        {
+            return std::nullopt;
+        }
+
+        // Isolate port number field.
+        const auto portText = entry.substr(secondComma + 1);
+        int16_t port = util::validatePortNum( portText );
+        if( port < 0 )
+        {
+            return std::nullopt;
+        }
+
+        result.serverList.emplace_back( 
+            std::string( groupId ), 
+            std::string( ip ), 
+            port 
+        );
+
+        if ( semicolon == std::string_view::npos )
+        {
+            break;
+        }
+
+        start = semicolon + 1;
+        if (start == list.size())
+        { 
+            break;
+        }
+    }
+    
+    return result;
+};
+
+std::optional< StatusResp > parseStatusResp( const std::string_view &list )
+{
+    if( list.empty() )
+    {
+        return std::nullopt;
+    }
+
+    StatusResp result;
+    size_t start = 0;
+
+    while( start < list.size() )
+    {
+        // Isolate single entry (',' seperated)
+        const size_t comma = list.find( ',', start );
+        const size_t endPos = comma == std::string_view::npos 
+                            ? std::string_view::npos : comma - start;
+        const auto entry = list.substr( start, endPos );
+        
+        // Handle sub-fields within entry. 
+        // Find colon position 
+        const size_t colon = entry.find( ':' );
+        if( colon == std::string_view::npos )
+        {
+            // TODO: Log here?
+            return std::nullopt; 
+        }
+
+        // Isolate name
+        const auto name = entry.substr( 0, colon );
+        if( name.empty() )
+        {
+            return std::nullopt;
+        }
+
+        // Isolate count
+        const auto countText = entry.substr( colon + 1 );
+        if( countText.empty() )
+        {
+            return std::nullopt;
+        }
+
+        uint8_t count = 0;
+        const auto [end, error] = std::from_chars(
+                    countText.data(), countText.data() + countText.size(), count );
+        
+        
+        if( error != std::errc() || end != countText.data() + countText.size() )
+        {
+            return std::nullopt;
+        }
+
+        result.serverMsgCount.emplace( 
+            std::string( name ), count 
+        );
+
+        if ( comma == std::string_view::npos )
+        {
+            break;
+        }
+
+        start = comma + 1;
+        if (start == list.size())
+        { 
+            break;
+        }
+    }
+
+    return result;
+} 
+
 std::optional< Payload > resolveCommand( const std::string_view &body )
 {
     if( body.empty() )
@@ -140,20 +282,68 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
         auto fromGroupId = nextField( body, pos );
         if( fromGroupId.empty() )
         {
+            // TODO: Log here: log_note
             return std::nullopt;
         }
 
         return Helo{ std::string( fromGroupId ) };
     }
 
-    if( name == SENDMSG )
+    if( name == SERVERS )
     {
-        auto sender = nextField( body, pos );
-        auto recipient = nextField( body, pos );
+        auto servers = parseServer( body.substr( pos ) );
+        if( !servers )
+        {
+            return std::nullopt;
+        }
+        return servers.value();
 
-        if( sender.empty() || recipient.empty() )
+    }
+
+    if( name == KEEPALIVE )
+    {
+        uint8_t msgCount; 
+        auto msgCountText = nextField( body, pos );
+        if( msgCountText.empty() )
+        {
+            return std::nullopt;
+        }
+        const auto [end, error] = std::from_chars(
+                msgCountText.data(), msgCountText.data() + msgCountText.size(), msgCount);
+
+        if( error != std::errc() || end != msgCountText.data() + msgCountText.size() )
+        {
+            return std::nullopt;
+        }
+
+        return KeepAlive { msgCount };
+    }
+
+    if( name == GETMSGS )
+    {
+        auto groupId = nextField( body, pos );
+        if( groupId.empty() )
         {
             // TODO: Log here: log_note
+            return std::nullopt;
+        }
+        return GetMsg{ std::string( groupId ) };
+    }
+
+    if( name == SENDMSG )
+    {
+        auto fromGroupId = nextField( body, pos );
+        auto toGroupId = nextField( body, pos );
+        auto timestampText = nextField( body, pos );
+        if( fromGroupId.empty() || toGroupId.empty() ||  timestampText.empty() )
+        {
+            // TODO: Log here: log_note
+            return std::nullopt;
+        }
+
+        int64_t timestamp = util::convertTimestamp( timestampText );
+        if( timestamp < 0 )
+        {
             return std::nullopt;
         }
 
@@ -171,20 +361,10 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
             return std::nullopt;
         }
 
-        return SendMsg{ std::string( sender ),
-                        std::string( recipient ), 
+        return SendMsg{ std::string( fromGroupId ),
+                        std::string( toGroupId ), 
+                        timestamp,
                         std::string( contents ) };
-    }
-
-    if( name == GETMSGS )
-    {
-        auto username = nextField( body, pos );
-        if( username.empty() )
-        {
-            // TODO: Log here: log_note
-            return std::nullopt;
-        }
-        return GetMsg{ std::string( username ) };
     }
 
     if( name == STATUSREQ )
@@ -195,6 +375,16 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
             return std::nullopt;
         }
         return StatusReq{};
+    }
+
+    if( name == STATUSRESP )
+    {
+        auto statusresp = parseStatusResp( body.substr( pos ) );
+        if( !statusresp )
+        {
+            return std::nullopt;
+        }
+        return statusresp.value();
     }
 
     // TODO: Log here: DROP

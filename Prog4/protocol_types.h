@@ -35,7 +35,7 @@ namespace protocol
         std::string ipAddr  = ""; 
         uint16_t listenPort = -1;
         
-        ServerInfo( const std::string &id, const std::string &ip, uint32_t port ) 
+        ServerInfo( const std::string &id, const std::string &ip, int16_t port ) 
         : groupId( id ), ipAddr( ip ), listenPort( port ) {} 
     };
 
