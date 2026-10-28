@@ -30,6 +30,13 @@
 
 - [ ] Cap total and per-recipient storage, and validate group IDs against `[A-Za-z0-9-]{1,12}` plus the `G_/I_` prefix.
 
+## Logging
+
+- Accepted frames become `RECV/SEND` via `log_event_bytes`
+- Malformed or unknown frames become `DROP`
+- Connection lifecycle becomes `ACCEPT/CONN/CLOSE`
+- Everything else currently logged as `INFO/WARNING` (“holding 3 for G_x”, “giving up reconnecting to...”) becomes `log_note`.
+
 ## Needs Extending
 
 ### **Client**
@@ -40,9 +47,9 @@
 
 - [ ] In `protocol`, the commands `HELO, SERVERS, KEEPALIVE, GETMSGS, STATUSRESP`, and the 4-field `SENDMSG` with a timestamp need to be implemented and handled. Stored message currently drops the timestamp entirely.
 
-### **`STATUSRESP` prefix**
+### **`STATUSRESP` Prefix**
 
-- [ ] Server-to-server status replies need the `STATUSRESP` and prefix.
+- [ ] Server-to-server status replies need the `STATUSRESP,`prefix.
 
 ### **Port Parsing**
 
