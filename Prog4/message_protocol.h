@@ -35,6 +35,7 @@ namespace protocol
     inline constexpr char STATUSRESP[] = "STATUSRESP";
 
     // TODO: Add groupId validation
+    int validateGroupId( const std::string &groupID );
 
     /* Creates a protocol compliant frame for the given message. */
     std::string createFrame( const std::string_view &message );
