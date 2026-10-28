@@ -9,27 +9,17 @@
 #include <sstream>
 #include <cstdint>
 #include <cstdio>
+#include <chrono>
 #include <ctime>
 
 
 namespace protocol
 {
 
-std::string getTimestamp()
+int64_t getTimestamp()
 {
-    std::time_t now = std::time(nullptr);
-
-    std::tm localTime{};
-
-    localtime_r(&now, &localTime);
-
-    std::ostringstream oss;
-
-    oss << std::put_time(
-        &localTime, "%Y-%m-%d %H:%M:%S"
-    );
-
-    return oss.str();
+    const auto timestamp = std::chrono::system_clock::now();
+    return std::chrono::duration_cast<std::chrono::seconds>( timestamp.time_since_epoch()).count();
 }
 
 std::string createFrame( const std::string_view& message )
@@ -144,6 +134,17 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
 
     size_t pos = 0;
     std::string_view name = nextField( body, pos );
+
+    if( name == HELO )
+    {
+        auto fromGroupId = nextField( body, pos );
+        if( fromGroupId.empty() )
+        {
+            return std::nullopt;
+        }
+
+        return Helo{ std::string( fromGroupId ) };
+    }
 
     if( name == SENDMSG )
     {

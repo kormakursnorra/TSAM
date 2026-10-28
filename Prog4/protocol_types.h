@@ -10,21 +10,20 @@
 
 namespace protocol
 {
+    // Generic Message struct
+    struct Message 
+    { 
+        std::string sender    = ""; 
+        std::string recipient = ""; 
+        int64_t timeStamp     = -1; 
+        std::string content   = "";
+    };
 
     // Servers and for and how many holding messages 
     using ServerCount = std::map< std::string, uint8_t >;
 
-    // Recipients and their messages
-    using Mailboxes = std::map< std::string, std::deque< std::string > >;
-
-    // Generic Message struct for re-use in  
-    struct Message 
-    { 
-        std::string sender; 
-        std::string recipient; 
-        uint64_t timeStamp; 
-        std::string content; 
-    };
+    // GroupIds and their messages
+    using Mailboxes = std::map< std::string, std::deque< Message > >;
 
     /* 
     * Wrapper for a connected server instance: <GROUP_ID>,<IP>,<PORT>. 
@@ -43,7 +42,7 @@ namespace protocol
     // Structs that represent/wrap the command types/data. 
 
     /* 
-     * Command Format: HELO,<FROM_GROUP_ID>(,<PORT> possible additional).
+     * Command Format: HELO,<FROM_GROUP_ID>.
      * Reply with the SERVERS response (below). This must be the first command each end 
      * sends on a connection: send it directly after connect() and accept().
      */
@@ -52,7 +51,8 @@ namespace protocol
     /*
      * Command Format: SERVERS,<server list>.
      * Response to HELO: a semicolon-separated list of the directly connected servers of the responding server. 
-     * Each server is specified as <GROUP_ID>,<IP>,<PORT> with the host IP and the port they accept connections on.
+     * First entry is the list is always our own server. Each server is specified as <GROUP_ID>,<IP>,<PORT> 
+     * with the host IP and the port they accept connections on.
      * Example: SERVERS,G_banana,130.208.246.98,4001;G_pelican,130.208.246.98,4002;
      */
     struct Servers { std::vector< struct ServerInfo > serverList; };
@@ -92,7 +92,7 @@ namespace protocol
      */
     struct StatusResp { ServerCount serverMsgCount; };
 
-    // 
+    // Command type structs can be passed in as Payload to functions
     using Payload = std::variant< Helo, Servers, KeepAlive, GetMsg, SendMsg, StatusReq, StatusResp >;
 
     /* Enum values represent the state of a given message:

@@ -1,5 +1,8 @@
 #pragma once
 
+#include "protocol_types.h"
+
+#include <optional>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -23,6 +26,8 @@ namespace connection
         uint64_t lastSeen   = -1;                       // when was client last seen (seconds)
         std::string inbox   = "";                       // bytes received but not yet parsed
         std::string outbox  = "";                       // outbound buffer
+
+        std::optional< protocol::ServerInfo> peer;
 
         Connection( int sock, const std::string &ip, const int16_t port ) 
         : socket( sock ), remoteIp( ip ), remotePort( port ){} 
