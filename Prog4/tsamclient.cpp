@@ -1,7 +1,8 @@
 #include "message_protocol.h"
 #include "tsamclient.h"
-#include "logger.h"
-
+#include <ctime>
+#include <iomanip>
+#include <sstream> 
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <iostream>
@@ -56,6 +57,19 @@ bool receiveFrame(int sock, std::string& receiveBuffer, std::string& response)
 
         receiveBuffer.append(temp, static_cast< size_t >( bytesReceived ) );
     }
+}
+
+std :: string getTimestamp()
+{
+    std::time_t now = std::time(nullptr);
+    std::tm timeinfo{};
+
+    localtime_r(&now, &timeinfo);
+
+    std::ostringstream output;
+    output << std::put_time(&timeinfo, "%Y-%m-%d %H:%M:%S");
+    return output.str();
+    
 }
 
 
@@ -134,7 +148,7 @@ int main(int argc, char* argv[])
             continue;
         }
         std::string frame = protocol::createFrame( command );
-        std::cout << "[" << logger::getTimestamp()<< "] Sending: " << command << "\n";
+        std::cout << "[" << getTimestamp()<< "] Sending: " << command << "\n";
 
        
         size_t sent = 0;
@@ -165,7 +179,7 @@ int main(int argc, char* argv[])
             break;
         }
         
-        std::cout << "[" << logger::getTimestamp()<< "] Server responded: " << response << "\n";
+        std::cout << "[" << getTimestamp()<< "] Server responded: " << response << "\n";
     }
     close(sock);
     return 0;

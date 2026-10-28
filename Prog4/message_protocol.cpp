@@ -171,7 +171,8 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
         }
 
         return SendMsg{ std::string( sender ),
-                        std::string( recipient ), 
+                        std::string( recipient ),
+                        0, 
                         std::string( contents ) };
     }
 
@@ -200,4 +201,4 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
     return std::nullopt;
 }
 
-};
+}
