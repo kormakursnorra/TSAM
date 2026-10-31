@@ -1,6 +1,6 @@
 #include "message_protocol.h"
 #include "protocol_types.h"
-
+#include "log_event.h"
 #include <netinet/in.h>
 #include <string_view>
 #include <sys/types.h>
@@ -49,6 +49,26 @@ std::string createFrame( const std::string_view& message )
     return frame;
 }
 
+std::string createStatusResp( const StatusResp &status )
+{
+    std::string resp( STATUSRESP );
+
+    if( status.serverMsgCount.empty() )
+    {
+        resp += ",EMPTY";
+        return resp;
+    }
+
+    for( const auto &[ name, count ] : status.serverMsgCount )
+    {
+        resp += ',';
+        resp += name;
+        resp += ':';
+        resp += std::to_string( static_cast< unsigned >( count ) );
+    }
+
+    return resp;
+}
 
 Frame parseMessage( const std::string_view &message )
 {   
@@ -172,7 +192,7 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
 
         return SendMsg{ std::string( sender ),
                         std::string( recipient ),
-                        0, 
+                        0,
                         std::string( contents ) };
     }
 
@@ -201,4 +221,4 @@ std::optional< Payload > resolveCommand( const std::string_view &body )
     return std::nullopt;
 }
 
-}
+};

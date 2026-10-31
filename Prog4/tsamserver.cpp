@@ -1,7 +1,7 @@
 #include "message_protocol.h"
 #include "tsamserver.h"
 #include "logger.h"
-
+#include "log_event.h"
 #include <netinet/in.h>
 #include <system_error>
 #include <algorithm>
@@ -244,8 +244,31 @@ int acceptNewClient( int listenSock, ClientLookup &clients, PolledFds &fds )
     
 }
 
+static bool replyOwed( const protocol::Payload &payload,
+                       const connection::Connection &conn )
+{
+    using namespace protocol;
 
-int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &mailBoxes )
+    const bool isPeer = ( conn.kind == connection::ConnectionKind::Peer );
+
+    // A status request always gets an answer, from a client or a peer.
+    if( std::holds_alternative< StatusReq >( payload ) ) return true;
+
+    // SENDMSG: our client gets "Message sent"; a peer gets nothing.
+    if( std::holds_alternative< SendMsg >( payload ) ) return !isPeer;
+
+    // GETMSG: our client gets its oldest message, one reply.
+    // A peer must get SENDMSG frames instead, which is not built yet,
+    // so for now it gets nothing rather than the wrong format.
+    if( std::holds_alternative< GetMsg >( payload ) ) return !isPeer;
+
+    // KEEPALIVE, HELO, SERVERS, STATUSRESP: acted on, never replied to.
+    return false;
+}
+
+// Won't work until client identification is complete
+int receiveFromClient( int clientSock, char* buffer, connection::Connection &client,
+                       protocol::Mailboxes &mailBoxes )
 {
     ssize_t bytesReceieved = recv(clientSock, buffer, protocol::MAX_FRAME, MSG_DONTWAIT);
     if( bytesReceieved < 0 )
@@ -283,40 +306,91 @@ int receiveFromClient( int clientSock, char* buffer, Client &client, Mailboxes &
         if ( newFrame.status == protocol::FrameStatus::Malformed )
         {
             size_t skip = protocol::findNextFrameStart( client.inbox );
-            logger::logToFile( { logger::LogLevel::WARNING, 
-                                       "Malformed input, discarding " + 
-                                       std::to_string( skip ) + " bytes" } ); 
+            log_event( "DROP", client.remoteIp.c_str(), client.remotePort,
+                        client.peerGroupId.c_str(), "malformed frame" ); 
             client.inbox.erase( 0, skip );
             continue;
         }
 
-        
-        logger::logToFile( { logger::LogLevel::INFO, 
-                                   "Received from sock " + std::to_string( client.sock ) 
-                                   + ": " + std::string( newFrame.body )  } ); 
-
-        // We need to check what kind of command is being sent.
-        struct logger::Log result;
-        auto payload = protocol::resolveCommand( newFrame.body, result ); 
-        
-        if( payload )
-        {
-            result = handleCommand( *payload, mailBoxes );
-        }
-       
-        logger::logToFile( { result.logLevel, 
-                                   "Reply to sock " + std::to_string( client.sock ) 
-                                   + ": " + result.logMsg } );
+                // newFrame.body points into client.inbox, so copy it before erasing.
+        const std::string body( newFrame.body );
         client.inbox.erase( 0, newFrame.frameLen );
-        if( sendMessage( client.sock, result.logMsg ) < 0 )
+
+        auto payload = protocol::resolveCommand( body );
+
+        if( !payload )
         {
-            return 1;
+            // Not a command we accept: DROP, with the start of it as evidence.
+            // Only the first part is logged, so junk floods can't fill the disk.
+            constexpr size_t DROP_DETAIL_MAX = 200;
+            std::string detail = "unrecognised command: " + body.substr( 0, DROP_DETAIL_MAX );
+            if( body.size() > DROP_DETAIL_MAX )
+            {
+                detail += "... (" + std::to_string( body.size() ) + " bytes)";
+            }
+            log_event_bytes( "DROP", client.remoteIp.c_str(), client.remotePort,
+                             client.peerGroupId.c_str(), detail.data(), detail.size() );
+
+            // Only our own client is told; peers and unidentified connections get silence.
+            if( client.kind == connection::ConnectionKind::OwnClient )
+            {
+                const std::string reply = "Unknown command";
+                if( sendMessage( client.socket, reply ) < 0 )
+                {
+                    return 1;
+                }
+                log_event_bytes( "SEND", client.remoteIp.c_str(), client.remotePort,
+                                 client.peerGroupId.c_str(), reply.data(), reply.size() );
+            }
+            continue;
         }
+
+        // Logged before peerGroupId is set below, so the RECV line of a HELO
+        // shows "-" as the group id, as log_event.h requires.
+        log_event_bytes( "RECV", client.remoteIp.c_str(), client.remotePort,
+                         client.peerGroupId.c_str(), body.data(), body.size() );
+
+        // The first accepted command decides what is at the other end.
+        // A compliant peer must start with HELO; our own client never sends it.
+        if( client.kind == connection::ConnectionKind::Unknown )
+        {
+            if( const auto *helo = std::get_if< protocol::Helo >( &*payload ) )
+            {
+                client.kind        = connection::ConnectionKind::Peer;
+                client.peerGroupId = helo->fromGroupId;
+                log_note( "%s:%u identified itself as %s", client.remoteIp.c_str(),
+                          static_cast< unsigned >( client.remotePort ),
+                          helo->fromGroupId.c_str() );
+            }
+            else
+            {
+                // Temporary until client identification exists: see todo.md.
+                client.kind = connection::ConnectionKind::OwnClient;
+                log_note( "%s:%u sent no HELO; treating it as our client",
+                          client.remoteIp.c_str(),
+                          static_cast< unsigned >( client.remotePort ) );
+            }
+        }
+
+        // Act on the command whether or not a reply goes back
+        // (a peer's SENDMSG is still stored).
+        struct logger::Log result = handleCommand( *payload, mailBoxes );
+
+        if( replyOwed( *payload, client ) )
+        {
+            if( sendMessage( client.socket, result.logMsg ) < 0 )
+            {
+                return 1;
+            }
+            log_event_bytes( "SEND", client.remoteIp.c_str(), client.remotePort,
+                             client.peerGroupId.c_str(),
+                             result.logMsg.data(), result.logMsg.size() );
+        }
+        // No else: not replying is the behaviour, and the RECV line is the record.
     }
 
-    return 0;     
+    return 0;
 }
-
 
 int main( int argc, char* argv[] )
 {
